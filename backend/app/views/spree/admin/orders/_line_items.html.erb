@@ -17,7 +17,7 @@
 
     <tbody>
       <% order.line_items.each do |item| %>
-        
+        <% next if item.nil? %>
         <tr class="line-item" id="line-item-<%= item.id %>">
           <td class="line-item-image"><%= mini_image(item.variant) %></td>
           <td class="line-item-name">
