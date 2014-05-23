@@ -9,7 +9,7 @@ module Spree
             links << button_link_to(Spree.t(event), fire_admin_order_url(@order, :e => event),
                                     :method => :put,
                                     :icon => "icon-#{event}",
-                                    :data => { :confirm => Spree.t(:order_sure_want_to, :event => Spree.t(event)) })
+                                    :data => { :confirm => Spree.t(:order_sure_want_to, :event => Spree.t(event)) }, :is_cancel => event == "cancel")
           end
         end
         links.join('&nbsp;').html_safe

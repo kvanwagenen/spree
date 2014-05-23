@@ -70,6 +70,16 @@ describe Spree::Admin::OrdersController do
           flash[:error].should_not be_nil
         end
       end
+
+      context "completed order" do
+        let(:order) { create(:completed_order_with_totals) }
+        
+        it "should pass a cancel reason on cancel" do
+          spree_put :fire, {:id => order.to_param, :e => "cancel", :reason => "fraudfake"}
+          order.reload
+          order.cancel_reason.should == "fraudfake"
+        end
+      end
     end
 
     context "pagination" do

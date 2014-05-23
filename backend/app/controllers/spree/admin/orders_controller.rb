@@ -83,7 +83,12 @@ module Spree
         # TODO - possible security check here but right now any admin can before any transition (and the state machine
         # itself will make sure transitions are not applied in the wrong state)
         event = params[:e]
-        if @order.state_events.include?(event.to_sym) && @order.send("#{event}")
+        reason = params[:reason]
+        event_param = nil
+        if event == "cancel"
+          event_param = params[:reason]
+        end
+        if @order.state_events.include?(event.to_sym) && @order.send("#{event}", event_param)
           flash[:success] = Spree.t(:order_updated)
         else
           flash[:error] = Spree.t(:cannot_perform_operation)

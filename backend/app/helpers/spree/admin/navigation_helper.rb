@@ -110,8 +110,16 @@ module Spree
         if (html_options[:method] &&
             html_options[:method].to_s.downcase != 'get' &&
             !html_options[:remote])
-          form_tag(url, :method => html_options.delete(:method)) do
-            button(text, html_options.delete(:icon), nil, html_options)
+          if html_options[:is_cancel]
+            form_tag(url, :method => html_options.delete(:method)) do
+              p = button(text, html_options.delete(:icon), nil, html_options)
+              p << select_tag(:reason, options_for_select([["Merchant Canceled", "merchantcanceled"],["Buyer Canceled", "buyercanceled"],["Duplicate/Invalid/Test", "duplcateinvalid"],["Fraud/Fake", "fraudfake"]]))
+              p
+            end
+          else
+            form_tag(url, :method => html_options.delete(:method)) do
+              button(text, html_options.delete(:icon), nil, html_options)
+            end
           end
         else
           if html_options['data-update'].nil? && html_options[:remote]
