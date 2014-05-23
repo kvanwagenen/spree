@@ -125,6 +125,36 @@ describe Spree::Api::ShipmentsController do
         json_response.should have_attributes(attributes)
         json_response["state"].should == "shipped"
       end
+
+      it "can transition a shipment from ready to shipped at a specific time" do
+        shipment.reload
+        ship_time = 1.day.ago
+        api_put :shipped_at, :order_id => shipment.order.to_param, :id => shipment.to_param, :shipment => { :tracking => "123456" }, :shipped_at => ship_time
+        json_response.should have_attributes(attributes)
+        json_response["state"].should == "shipped"
+        Time.parse(json_response["shipped_at"]).should.eql? ship_time
+      end
+    end
+
+    context "with a shipment that has already shipped" do
+      before do
+        Spree::Order.any_instance.stub(:paid? => true, :complete? => true)
+        # For the shipment notification email
+        Spree::Config[:mails_from] = "spree@example.com"
+
+        shipment.update!(shipment.order)
+        shipment.ship!
+        shipment.state.should == "shipped"
+        Spree::ShippingRate.any_instance.stub(:cost => 5)
+      end
+
+      it "can change the shipped_at time" do 
+        ship_time = 1.day.ago
+        api_put :shipped_at, :order_id => shipment.order.to_param, :id => shipment.to_param, :shipment => { :tracking => "123456" }, :shipped_at => ship_time
+        json_response.should have_attributes(attributes)
+        json_response["state"].should == "shipped"
+        Time.parse(json_response["shipped_at"]).should.eql? ship_time
+      end
     end
   end
 end

@@ -58,6 +58,19 @@ module Spree
         respond_with(@shipment, :default_template => :show)
       end
 
+      def shipped_at
+        authorize! :read, Spree::Shipment
+        find_and_update_shipment
+        unless @shipment.shipped?
+          @shipment.ship!
+        end
+        if @shipment.shipped?
+          @shipment.shipped_at = params[:shipped_at]
+          @shipment.save!
+        end
+        respond_with(@shipment, :default_template => :show)
+      end
+
       def add
         variant = Spree::Variant.find(params[:variant_id])
         quantity = params[:quantity].to_i
