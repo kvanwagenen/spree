@@ -29,7 +29,7 @@ module Spree
     attr_accessible :line_items, :bill_address_attributes, :ship_address_attributes,
                     :payments_attributes, :ship_address, :bill_address, :currency,
                     :line_items_attributes, :number, :email, :use_billing,
-                    :special_instructions, :shipments_attributes, :coupon_code
+                    :special_instructions, :shipments_attributes, :coupon_code, :cancel_reason
 
     attr_reader :coupon_code
 
@@ -80,6 +80,7 @@ module Spree
     validates :email, email: true, if: :require_email, allow_blank: true
     validate :has_available_shipment
     validate :has_available_payment
+    validates :cancel_reason, inclusion: { in: %w(merchantcanceled buyercanceled duplicateinvalid fraudfake), message: "%{value} is not a valid cancellation reason"}, allow_nil: true
 
     make_permalink field: :number
 
@@ -559,6 +560,16 @@ module Spree
 
     def refresh_shipment_rates
       shipments.map &:refresh_rates
+    end
+
+    def cancel(reason=nil)
+      self.cancel_reason = reason || "merchantcanceled"
+      super
+    end
+
+    def cancel!(reason=nil)
+      self.cancel_reason = reason || "merchantcanceled"
+      super
     end
 
     private

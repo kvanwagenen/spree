@@ -38,7 +38,7 @@ module Spree
       end
 
       def cancel
-        @order.cancel!
+        @order.cancel! params[:reason]
         render :show
       end
 

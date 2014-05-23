@@ -360,6 +360,20 @@ describe Spree::Order do
     end
   end
 
+  context "completed not shipped" do
+    let(:order) { create(:order_ready_to_ship) }
+
+    it "should set a cancel reason when canceled" do
+      order.cancel!
+      order.cancel_reason.should_not == nil
+    end
+
+    it "should set the cancel reason to the passed value when canceled" do
+      order.cancel "fraudfake"
+      order.cancel_reason.should == "fraudfake"      
+    end
+  end
+
   context "insufficient_stock_lines" do
     let(:line_item) { mock_model Spree::LineItem, :insufficient_stock? => true }
 

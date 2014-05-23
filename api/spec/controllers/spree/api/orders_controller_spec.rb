@@ -361,6 +361,18 @@ module Spree
           api_put :cancel, :id => order.to_param
           json_response["state"].should == "canceled"
         end
+
+        it "sets cancel reason to merchantcanceled when not provided" do
+          api_put :cancel, :id => order.to_param
+          order.reload
+          order.cancel_reason.should == "merchantcanceled"
+        end
+
+        it "sets a provided cancel reason" do
+          api_put :cancel, :id => order.to_param, :reason => "fraudfake"
+          order.reload
+          order.cancel_reason.should == "fraudfake"
+        end
       end
     end
   end
