@@ -115,6 +115,27 @@ module Spree
         json_response['count_on_hand'].should eq 50
       end
 
+      it 'can update a batch of stock items' do 
+        params = {
+          stock_items: [
+            {
+              variant_id: stock_location.stock_items[0].variant_id,
+              count_on_hand: 12
+            },
+            {
+              variant_id: stock_location.stock_items[1].variant_id,
+              count_on_hand: 21
+            }
+          ]
+        }
+        params = params.merge(stock_location_id: stock_location.to_param)
+        api_put :update_batch, params
+        response.status.should == 200
+        stock_location.reload
+        stock_location.stock_items[0].count_on_hand.should == 12
+        stock_location.stock_items[1].count_on_hand.should == 21
+      end
+
       it 'can set a stock item to modify the current inventory' do
         stock_item.count_on_hand.should == 10
 

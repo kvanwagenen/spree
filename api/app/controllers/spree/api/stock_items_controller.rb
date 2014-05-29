@@ -53,6 +53,24 @@ module Spree
         end
       end
 
+      def update_batch
+        authorize! :update, StockItem        
+        
+        if params[:stock_items].nil?
+          render status: :bad_request, content_type: :json, message: "Request contained no stock_items parameter"
+        end
+
+        stock_items = params[:stock_items]
+        updated = 0
+        stock_items.each do |item|
+          next if item.nil? || item["variant_id"].nil? || item["count_on_hand"].nil?
+          stock_item = @stock_location.stock_items.find_by_variant_id(item["variant_id"])
+          success = stock_item.set_count_on_hand(item["count_on_hand"])
+          updated += 1 if success
+        end
+        @data = { :message => "Successfully updated #{updated} stock items" }
+      end
+
       def destroy
         authorize! :delete, StockItem
         @stock_item = StockItem.find(params[:id])

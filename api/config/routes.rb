@@ -84,7 +84,9 @@ Spree::Core::Engine.routes.draw do
     resources :properties
     resources :stock_locations do
       resources :stock_movements
-      resources :stock_items
+      resources :stock_items do 
+        put :update_batch
+      end
     end
   end
 end
