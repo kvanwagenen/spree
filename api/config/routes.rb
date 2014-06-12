@@ -60,6 +60,7 @@ Spree::Core::Engine.routes.draw do
           put :ship
           put :add
           put :remove
+          put :shipped_at
         end
       end
     end
