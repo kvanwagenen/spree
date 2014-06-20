@@ -7,6 +7,10 @@ module Spree
         authorize! :update, order, order_token
         @line_item = order.line_items.build(params[:line_item], :as => :api)
         if @line_item.save
+          if !params[:line_item].nil? && !params[:line_item][:price].nil?
+            @line_item.price = params[:line_item][:price]
+            @line_item.save
+          end
           @order.ensure_updated_shipments
           respond_with(@line_item, :status => 201, :default_template => :show)
         else
