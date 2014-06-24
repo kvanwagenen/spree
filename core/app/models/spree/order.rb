@@ -29,7 +29,8 @@ module Spree
     attr_accessible :line_items, :bill_address_attributes, :ship_address_attributes,
                     :payments_attributes, :ship_address, :bill_address, :currency,
                     :line_items_attributes, :number, :email, :use_billing,
-                    :special_instructions, :shipments_attributes, :coupon_code, :cancel_reason
+                    :special_instructions, :shipments_attributes, :coupon_code, :cancel_reason,
+                    :synced_at
 
     attr_reader :coupon_code
 
