@@ -113,7 +113,7 @@ module Spree
           if html_options[:is_cancel]
             form_tag(url, :method => html_options.delete(:method)) do
               p = button(text, html_options.delete(:icon), nil, html_options)
-              p << select_tag(:reason, options_for_select([["Merchant Canceled", "merchantcanceled"],["Buyer Canceled", "buyercanceled"],["Duplicate/Invalid/Test", "duplcateinvalid"],["Fraud/Fake", "fraudfake"]]))
+              p << select_tag(:reason, options_for_select([["Merchant Canceled", "merchantcanceled"],["Buyer Canceled", "buyercanceled"],["Duplicate/Invalid/Test", "duplicateinvalid"],["Fraud/Fake", "fraudfake"]]))
               p
             end
           else
