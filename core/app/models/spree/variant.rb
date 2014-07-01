@@ -12,7 +12,7 @@ module Spree
                     :position, :option_value_ids,
                     :product_id, :option_values_attributes, :price,
                     :weight, :height, :width, :depth, :sku, :cost_currency,
-                    :track_inventory, :options
+                    :track_inventory, :options, :fulfillment_cost
 
     has_many :inventory_units
     has_many :line_items
