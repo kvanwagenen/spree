@@ -94,7 +94,8 @@ module Spree
                     :taxon_ids,
                     :weight,
                     :width,
-                    :variants_attributes
+                    :variants_attributes,
+                    :fulfillment_cost
 
     attr_accessible :cost_price if Variant.table_exists? && Variant.column_names.include?('cost_price')
 
