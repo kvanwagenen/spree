@@ -4,6 +4,8 @@ Spree::Core::Engine.routes.draw do
 
   resources :products
 
+  match '/products/:id/*path', :to => 'products#show', :via => :get, :as => :product_variant
+
   match '/locale/set', :to => 'locale#set'
 
   resources :states, :only => :index

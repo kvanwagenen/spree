@@ -193,6 +193,31 @@ module Spree
       end
     end
 
+    def variants_with_options(options_hash)
+      scope = variants
+      options_hash.each do |key, value|
+        scope = scope.where(id: scope.select("variant_id").joins(:option_values => [:option_type]).where("spree_option_types.name = '#{key}' AND spree_option_values.name = '#{value}'"))
+      end
+      scope.all
+    end
+
+    def available_options
+      options = {}
+      variants.each do |variant|
+        variant.option_values.each do |option_value|
+          option_type = option_value.option_type
+          if options.has_key?(option_type)
+            unless options[option_type].include? option_value
+              options[option_type] << option_value
+            end
+          else
+            options[option_type] = [option_value]
+          end
+        end
+      end
+      options
+    end
+
     def empty_option_values?
       options.empty? || options.any? do |opt|
         opt.option_type.option_values.empty?

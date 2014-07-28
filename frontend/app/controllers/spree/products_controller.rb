@@ -43,6 +43,25 @@ module Spree
         else
           @product = Product.active(current_currency).find_by_permalink!(params[:id])
         end
+
+        # Load variant
+        @variant = @product.master
+        if @product.variants.length > 0
+          @variant = @product.variants.first
+          if !params["path"].nil? && params["path"].length > 0
+            tokens = params["path"].split('/')
+            options = {}
+            for i in 0..(tokens.length/2 - 1)
+              key_index = i*2
+              value_index = key_index + 1
+              options[tokens[key_index]] = tokens[value_index]
+            end
+            variants = @product.variants_with_options(options)
+            if !variants.nil? && variants.length > 0
+              @variant = variants.first
+            end
+          end
+        end
       end
   end
 end

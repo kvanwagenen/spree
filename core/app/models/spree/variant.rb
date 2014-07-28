@@ -119,7 +119,7 @@ module Spree
     end
 
     def option_value(opt_name)
-      self.option_values.detect { |o| o.option_type.name == opt_name }.try(:presentation)
+      self.option_values.detect { |o| o.option_type.name == opt_name }.try(:name)
     end
 
     def has_default_price?
