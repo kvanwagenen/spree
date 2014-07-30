@@ -40,7 +40,7 @@ module Spree
       end
 
       def option_type_attributes
-        [:id, :name, :presentation, :position]
+        [:id, :name, :presentation, :position, :list_all]
       end
 
       def payment_attributes
