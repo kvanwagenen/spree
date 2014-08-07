@@ -100,6 +100,13 @@ $ ->
       ($ '#variant_id').val("")
       ($ '.qty').prop("name", "")
 
+    # Set sku
+    if variant isnt null
+      ($ '#product-sku .property-value').html(" #{variant.sku}")
+      ($ '#product-sku').show()
+    else
+      ($ '#product-sku').hide()
+
     # Set stock available
     stockAvailable = 0
     backorderable = false
@@ -139,11 +146,18 @@ $ ->
       return $(this).data('type') isnt lastOptionType
 
     # Update url
-    if history.pushState and variant isnt null
+    if history.replaceState and variant isnt null
       path = window.location.pathname.split('/').slice(0, 3).join("/")
+      variant.option_values.sort (a,b) ->
+        if a.option_type_name < b.option_type_name
+          return -1
+        else if a.option_type_name > b.option_type_name
+          return 1
+        else
+          return 0
       $.each variant.option_values, (index, optionValue) ->
         path += "/#{optionValue.option_type_name}/#{optionValue.name}"
-      history.pushState('','',window.location.origin + path)
+      history.replaceState('','',window.location.origin + path)
 
     # TODO Set images
 
@@ -164,6 +178,6 @@ $ ->
 
   # Request product JSON after page has loaded
   pathParts = window.location.pathname.split('/')
-  if pathParts[1] is "products" and pathParts[2].length > 0
+  if pathParts.length > 2 && pathParts[1] is "products" and pathParts[2].length > 0
     $(window).load (e) ->
       Spree.currentProduct ->
