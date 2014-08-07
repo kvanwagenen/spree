@@ -4,15 +4,15 @@ module Spree
 
     belongs_to :product, touch: true, class_name: 'Spree::Product'
 
-    delegate_belongs_to :product, :name, :description, :permalink, :available_on,
+    delegate_belongs_to :product, :name, :description, :available_on,
                         :tax_category_id, :shipping_category_id, :meta_description,
-                        :meta_keywords, :tax_category, :shipping_category
+                        :meta_keywords, :tax_category, :shipping_category, :saletype, :permalink
 
     attr_accessible :name, :presentation, :cost_price, :lock_version,
                     :position, :option_value_ids,
                     :product_id, :option_values_attributes, :price,
                     :weight, :height, :width, :depth, :sku, :cost_currency,
-                    :track_inventory, :options, :fulfillment_cost
+                    :track_inventory, :options, :fulfillment_cost, :slug, :total_on_hand, :listed
 
     has_many :inventory_units
     has_many :line_items
@@ -40,6 +40,7 @@ module Spree
     validates :cost_price, numericality: { greater_than_or_equal_to: 0, allow_nil: true } if self.table_exists? && self.column_names.include?('cost_price')
 
     before_validation :set_cost_currency
+    before_save :set_slug
     after_save :save_default_price
     after_create :create_stock_items
     after_create :set_position
@@ -116,6 +117,8 @@ module Spree
 
       self.option_values << option_value
       self.save
+
+      product.update_variants_listed
     end
 
     def option_value(opt_name)
@@ -142,8 +145,9 @@ module Spree
       Spree::Stock::Quantifier.new(self).can_supply?(quantity)
     end
 
-    def total_on_hand
-      Spree::Stock::Quantifier.new(self).total_on_hand
+    def update_total_on_hand
+      total_on_hand = Spree::Stock::Quantifier.new(self).total_on_hand
+      self.save
     end
 
     # Product may be created with deleted_at already set,
@@ -157,6 +161,14 @@ module Spree
     # This considers both variant tracking flag and site-wide inventory tracking settings
     def should_track_inventory?
       self.track_inventory? && Spree::Config.track_inventory_levels
+    end
+
+    def set_slug
+      path = ""
+      option_values.sort{|x,y|x.option_type.name <=> y.option_type.name}.each do |option_value|
+        path += "/#{option_value.option_type.name}/#{option_value.name}"
+      end
+      self.slug = product.permalink + path
     end
 
     private

@@ -13,6 +13,12 @@ module Spree
 
     delegate :weight, :should_track_inventory?, to: :variant
 
+    after_save :update_variant_total_on_hand
+
+    def update_variant_total_on_hand
+      @variant.update_total_on_hand
+    end
+
     def backordered_inventory_units
       Spree::InventoryUnit.backordered_for_stock_item(self)
     end
