@@ -201,6 +201,54 @@ module Spree
       scope.all
     end
 
+    def update_variants_listed
+      
+      # If no variants list only master
+      if variants.length == 0
+        master.listed = true
+        master.save!
+        return
+
+      # Otherwise make sure it's not listed
+      else
+        master.listed = false
+        master.save!
+      end
+
+      # Get all option types
+      list_all_types = option_types.select{|t|t.list_all}
+
+      # If no option types are list_all, list the first variant
+      if list_all_types.empty?
+        variants.each do |variant|
+          variant.listed = false
+          variant.save!
+        end
+        variants.first.listed = true
+        variants.first.save!
+
+      # Otherwise for each option type that is list_all, ensure one variant with each available value is listed
+      else
+        variants.each{|v|v.listed = false; v.save!}
+        list_all_types.each do |list_all_type|
+          to_list_ids = []
+          list_all_type.option_values.each do |option_value|
+
+            # Find first variant with value
+            to_list = variants.joins(:option_values).where("spree_option_values.option_type_id = ? AND spree_option_values.name = ?", list_all_type.id, option_value.name).take(1)
+            if to_list && to_list.length > 0 && to_list[0]
+              to_list_ids << to_list[0].id
+            end
+          end
+          Spree::Variant.where(:id => to_list_ids).scoped.each do |variant|
+            variant.listed = true;
+            variant.save!
+          end
+        end
+      end
+
+    end
+
     def available_options
       options = {}
       variants.each do |variant|
