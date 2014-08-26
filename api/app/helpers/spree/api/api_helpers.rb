@@ -20,7 +20,7 @@ module Spree
       end
 
       def variant_attributes
-        [:id, :name, :sku, :price, :weight, :height, :width, :depth, :is_master, :cost_price, :slug, :fulfillment_cost]
+        [:id, :name, :sku, :price, :weight, :height, :width, :depth, :is_master, :cost_price, :slug, :fulfillment_cost, :small_image_url, :large_image_url, :max_image_url]
       end
 
       def image_attributes
