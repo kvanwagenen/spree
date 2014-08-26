@@ -7,15 +7,14 @@ $.fn.spreeVariantSelector = (options) ->
 Spree.VariantSelector = (() ->
   VariantSelector = (@$productEl, options) ->
     @productId = @$productEl.data('product')
-
     @settings = $.extend({
         updateUrl: true,
         prefetch: false
       }, 
       options
     )
-
     this.registerEventHandlers()
+    this.preloadImages()
 
   VariantSelector.prototype.registerEventHandlers = ->
     $selects = this.variantOptionSelects()
@@ -28,7 +27,21 @@ Spree.VariantSelector = (() ->
       $(window).load (e) =>
         this.getProduct ->
 
+  VariantSelector.prototype.preloadImages = ->
+    $(window).load (e) =>
+      this.getProduct (err, product) ->
+        cssPreloadStr = "<style>"
+        $.each product.variants, (index, variant) -> 
+          elId = "preload-#{index}"
+          cssPreloadStr += "##{elId} {background: url(#{variant.large_image_url}) no-repeat -9999px -9999px; }" 
+          $('body').append("<div id=\"#{elId}\"></div>")
+        $('body').append("#{cssPreloadStr}</style>")
+
   VariantSelector.prototype.onSelectChange = (e) ->
+    lastOptionType = $(e.currentTarget).data('type')  
+    this.showVariant(this.getSelectedOptions(), lastOptionType)
+
+  VariantSelector.prototype.getSelectedOptions = ->
     $selects = this.variantOptionSelects()
     selectedOptions = {}
     $selects.each (index, el) ->
@@ -36,8 +49,7 @@ Spree.VariantSelector = (() ->
       option_type = ($ el).data('type')
       if $select.val() isnt ""
         selectedOptions[option_type] = $select.val()
-    lastOptionType = $(e.currentTarget).data('type')  
-    this.showVariant(selectedOptions, lastOptionType)
+    selectedOptions
 
   VariantSelector.prototype.showVariant = (selectedOptions, lastOptionType) ->
     this.getProduct (err, product) =>
@@ -121,22 +133,30 @@ Spree.VariantSelector = (() ->
       $selectsToUpdate = $selects.filter ->
         return $(this).data('type') isnt lastOptionType
 
-      # Update url
+      # Update main image
+      $mainImage = @$productEl.find('#main-image img')
+      if variant isnt null
+        $mainImage.attr("src", variant.large_image_url)
+
+      # Update details url
+      $detailsLink = $('.product-link')
+      if variant isnt null
+        if $detailsLink.length > 0
+          $detailsLink.attr "href", this.getVariantUrl(variant)
+        $detailsLink.show()
+      else
+        $detailsLink.hide()
+
+      # Update address bar
       if @settings.updateUrl and history.replaceState and variant isnt null
-        path = window.location.pathname.split('/').slice(0, 3).join("/")
-        variant.option_values.sort (a,b) ->
-          if a.option_type_name < b.option_type_name
-            return -1
-          else if a.option_type_name > b.option_type_name
-            return 1
-          else
-            return 0
-        $.each variant.option_values, (index, optionValue) ->
-          path += "/#{optionValue.option_type_name}/#{optionValue.name}"
-        history.replaceState('','',window.location.origin + path)
+        history.replaceState('','', this.getVariantUrl(variant))
 
   VariantSelector.prototype.variantOptionSelects = ->
     @$productEl.find('#product-variants select')
+
+  VariantSelector.prototype.getVariantUrl = (variant) ->
+    path = window.location.pathname.split('/').slice(0, 2).join("/")
+    "#{path}/#{variant.slug}"
 
   VariantSelector.prototype.getProduct = (cb) ->
 
