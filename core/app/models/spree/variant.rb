@@ -146,7 +146,7 @@ module Spree
     end
 
     def update_total_on_hand
-      total_on_hand = Spree::Stock::Quantifier.new(self).total_on_hand
+      self.total_on_hand = Spree::Stock::Quantifier.new(self).total_on_hand
       self.save
     end
 
