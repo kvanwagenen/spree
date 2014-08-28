@@ -1,6 +1,8 @@
 module Spree
   module Api
     class OptionValuesController < Spree::Api::BaseController
+      before_filter :variant
+
       def index
         if params[:ids]
           @option_values = scope.where(:id => params[:ids])
@@ -17,11 +19,16 @@ module Spree
 
       def create
       	authorize! :create, Spree::OptionValue
-      	@option_value = scope.new(params[:option_value])
-        if @option_value.save
-          render :show, :status => 201
+        if @variant
+          @variant.set_option_value(params[:option_value][:option_type_name], params[:option_value][:name])
+          render :template => 'spree/api/variants/show', :locals => {:variant => @variant}
         else
-          invalid_resource!(@option_value)
+        	@option_value = scope.new(params[:option_value])
+          if @option_value.save
+            render :show, :status => 201
+          else
+            invalid_resource!(@option_value)
+          end
         end
       end
 
@@ -49,6 +56,13 @@ module Spree
             @scope ||= Spree::OptionType.find(params[:option_type_id]).option_values
           else
             @scope ||= Spree::OptionValue.scoped
+          end
+        end
+
+        def variant
+          @variant = nil
+          if params[:variant_id]
+            @variant = Spree::Variant.find(params[:variant_id])
           end
         end
     end

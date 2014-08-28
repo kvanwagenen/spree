@@ -10,7 +10,9 @@ Spree::Core::Engine.routes.draw do
 
   namespace :api, :defaults => { :format => 'json' } do
     resources :products do
-      resources :variants
+      resources :variants do
+        resources :option_values
+      end
       resources :product_properties
     end
 
