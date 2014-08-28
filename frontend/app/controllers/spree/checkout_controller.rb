@@ -6,6 +6,7 @@ module Spree
   class CheckoutController < Spree::StoreController
     ssl_required
 
+    before_filter :log_params
     before_filter :load_order_with_lock
 
     before_filter :ensure_order_not_completed
@@ -22,6 +23,10 @@ module Spree
     helper 'spree/orders'
 
     rescue_from Spree::Core::GatewayError, :with => :rescue_from_spree_gateway_error
+
+    def log_params
+      Rails.logger.error("CheckoutUpdateParams: #{params}")
+    end
 
     # Updates the order and advances to the next state (when possible.)
     def update
@@ -109,7 +114,22 @@ module Spree
         # has_checkout_step? check is necessary due to issue described in #2910
         if @order.has_checkout_step?("payment") && @order.payment?
           if params[:payment_source].present?
-            source_params = params.delete(:payment_source)[params[:order][:payments_attributes].first[:payment_method_id].underscore]
+            Rails.logger.error("PaymentsBug: Params:#{params}\n\nOrder:#{@order.attributes}")
+
+            # If order parameter isn't present and only one payment source parameter exists, use it
+            payment_source_key = nil
+            if params[:order].nil? && params[:payment_source].length == 1
+              payment_source_key = params[:payment_source].keys.first
+              params[:order] = {
+                :payments_attributes => [{:payment_method_id => payment_source_key.to_i}]
+              }
+            elsif !params[:order].nil?
+              payment_source_key = params[:order][:payments_attributes].first[:payment_method_id].underscore
+            else
+              flash[:error] = Spree.t(:error_submitting_payment_please_try_again_or_call_customer_support)
+              redirect_to checkout_state_path(@order.state)
+            end
+            source_params = params.delete(:payment_source)[payment_source_key]
 
             if source_params
               params[:order][:payments_attributes].first[:source_attributes] = source_params
