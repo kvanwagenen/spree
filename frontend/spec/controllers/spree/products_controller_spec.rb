@@ -28,7 +28,8 @@ describe Spree::ProductsController do
     current_user = mock_model(Spree.user_class, :has_spree_role? => true, :last_incomplete_spree_order => nil, :generate_spree_api_key! => nil)
     controller.stub :spree_current_user => current_user
     request.env['HTTP_REFERER'] = "not|a$url"
-    # previously this would raise URI::InvalidURIError
+
+    # Previously a URI::InvalidURIError exception was being thrown
     lambda { spree_get :show, :id => product.to_param }.should_not raise_error
   end
 

@@ -1,46 +1,60 @@
 module Spree
   module Api
     class LineItemsController < Spree::Api::BaseController
-      respond_to :json
-
       def create
-        authorize! :update, order, order_token
-        @line_item = order.line_items.build(params[:line_item], :as => :api)
-        if @line_item.save
+        variant = Spree::Variant.find(params[:line_item][:variant_id])
+        @line_item = order.contents.add(variant, params[:line_item][:quantity] || 1)
+
+        if @line_item.errors.empty?
           if !params[:line_item].nil? && !params[:line_item][:price].nil?
             @line_item.price = params[:line_item][:price]
             @line_item.save
           end
-          @order.ensure_updated_shipments
-          respond_with(@line_item, :status => 201, :default_template => :show)
+          respond_with(@line_item, status: 201, default_template: :show)
         else
           invalid_resource!(@line_item)
         end
       end
 
       def update
-        authorize! :update, order, order_token
-        @line_item = order.line_items.find(params[:id])
-        if @line_item.update_attributes(params[:line_item], :as => :api)
-          @order.ensure_updated_shipments
-          respond_with(@line_item, :default_template => :show)
+        @line_item = find_line_item
+        if @order.contents.update_cart(line_items_attributes)
+          @line_item.reload
+          respond_with(@line_item, default_template: :show)
         else
           invalid_resource!(@line_item)
         end
       end
 
       def destroy
-        authorize! :update, order, order_token
-        @line_item = order.line_items.find(params[:id])
-        @line_item.destroy
-        respond_with(@line_item, :status => 204)
+        @line_item = find_line_item
+        variant = Spree::Variant.find(@line_item.variant_id)
+        @order.contents.remove(variant, @line_item.quantity)
+        respond_with(@line_item, status: 204)
       end
 
       private
+        def order
+          @order ||= Spree::Order.includes(:line_items).find_by!(number: order_id)
+          authorize! :update, @order, order_token
+        end
 
-      def order
-        @order ||= Order.find_by_number!(params[:order_id])
-      end
+        def find_line_item
+          id = params[:id].to_i
+          order.line_items.detect {|line_item| line_item.id == id} or
+            raise ActiveRecord::RecordNotFound
+        end
+
+        def line_items_attributes
+          { line_items_attributes: {
+            id: params[:id],
+            quantity: params[:line_item][:quantity]
+          } }
+        end
+
+        def line_item_params
+          params.require(:line_item).permit(:quantity, :variant_id)
+        end
     end
   end
 end

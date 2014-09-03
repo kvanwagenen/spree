@@ -44,13 +44,8 @@ describe Spree::OrderMailer do
 
   context "only shows eligible adjustments in emails" do
     before do
-      order.adjustments.create({:label    => "Eligible Adjustment",
-                                :amount   => 10,
-                                :eligible => true}, :without_protection => true)
-
-      order.adjustments.create!({:label    => "Ineligible Adjustment",
-                                 :amount   => -10,
-                                 :eligible => false}, :without_protection => true)
+      create(:adjustment, :order => order, :eligible => true, :label => "Eligible Adjustment")
+      create(:adjustment, :order => order, :eligible => false, :label => "Ineligible Adjustment")
     end
 
     let!(:confirmation_email) { Spree::OrderMailer.confirm_email(order) }
@@ -87,6 +82,7 @@ describe Spree::OrderMailer do
 
     context "pt-BR locale" do
       before do
+        I18n.enforce_available_locales = false
         pt_br_confirm_mail = { :spree => { :order_mailer => { :confirm_email => { :dear_customer => 'Caro Cliente,' } } } }
         pt_br_cancel_mail = { :spree => { :order_mailer => { :cancel_email => { :order_summary_canceled => 'Resumo da Pedido [CANCELADA]' } } } }
         I18n.backend.store_translations :'pt-BR', pt_br_confirm_mail
@@ -96,6 +92,7 @@ describe Spree::OrderMailer do
 
       after do
         I18n.locale = I18n.default_locale
+        I18n.enforce_available_locales = true
       end
 
       context "confirm_email" do

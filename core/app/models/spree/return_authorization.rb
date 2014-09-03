@@ -1,9 +1,9 @@
 module Spree
-  class ReturnAuthorization < ActiveRecord::Base
+  class ReturnAuthorization < Spree::Base
     belongs_to :order, class_name: 'Spree::Order'
 
-    has_many :inventory_units
-    has_one :stock_location
+    has_many :inventory_units, dependent: :nullify
+    belongs_to :stock_location
     before_create :generate_number
     before_save :force_positive_amount
 
@@ -11,16 +11,14 @@ module Spree
     validates :amount, numericality: true
     validate :must_have_shipped_units
 
-    attr_accessible :amount, :reason, :stock_location_id
-
-    state_machine initial: 'authorized' do
-      after_transition to: 'received', do: :process_return
+    state_machine initial: :authorized do
+      after_transition to: :received, do: :process_return
 
       event :receive do
-        transition to: 'received', from: 'authorized', if: :allow_receive?
+        transition to: :received, from: :authorized, if: :allow_receive?
       end
       event :cancel do
-        transition to: 'canceled', from: 'authorized'
+        transition to: :canceled, from: :authorized
       end
     end
 
@@ -61,36 +59,40 @@ module Spree
     end
 
     def returnable_inventory
-      order.shipped_shipments.collect{|s| s.inventory_units.all}.flatten
+      order.shipped_shipments.collect{|s| s.inventory_units.to_a}.flatten
+    end
+
+    # Used when Adjustment#update! wants to update the related adjustment
+    def compute_amount(*args)
+      amount.abs * -1
     end
 
     private
+
       def must_have_shipped_units
         errors.add(:order, Spree.t(:has_no_shipped_units)) if order.nil? || !order.shipped_shipments.any?
       end
 
       def generate_number
-        return if number
-
-        record = true
-        while record
+        self.number ||= loop do
           random = "RMA#{Array.new(9){rand(9)}.join}"
-          record = self.class.where(number: random).first
+          break random unless self.class.exists?(number: random)
         end
-        self.number = random
       end
 
       def process_return
-        inventory_units.each do |iu|
+        inventory_units(include: :variant).each do |iu|
           iu.return!
-          stock_item = Spree::StockItem.where(variant_id: iu.variant.id, stock_location_id: stock_location_id).first
-          Spree::StockMovement.create!(stock_item_id: stock_item.id, quantity: 1)
+
+          if iu.variant.should_track_inventory?
+            if stock_item = Spree::StockItem.find_by(variant_id: iu.variant_id, stock_location_id: stock_location_id)
+              Spree::StockMovement.create!(stock_item_id: stock_item.id, quantity: 1)
+            end
+          end
         end
 
-        credit = Adjustment.new(amount: amount.abs * -1, label: Spree.t(:rma_credit))
-        credit.source = self
-        credit.adjustable = order
-        credit.save
+        Adjustment.create(adjustable: order, amount: compute_amount, label: Spree.t(:rma_credit), source: self)
+        order.update!
 
         order.return if inventory_units.all?(&:returned?)
       end

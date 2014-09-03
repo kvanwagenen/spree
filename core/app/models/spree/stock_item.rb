@@ -1,17 +1,19 @@
 module Spree
-  class StockItem < ActiveRecord::Base
+  class StockItem < Spree::Base
     acts_as_paranoid
 
     belongs_to :stock_location, class_name: 'Spree::StockLocation'
-    belongs_to :variant, class_name: 'Spree::Variant'
-    has_many :stock_movements
+    belongs_to :variant, class_name: 'Spree::Variant', inverse_of: :stock_items
+    has_many :stock_movements, inverse_of: :stock_item
 
     validates_presence_of :stock_location, :variant
     validates_uniqueness_of :variant_id, scope: [:stock_location_id, :deleted_at]
-
-    attr_accessible :count_on_hand, :variant, :stock_location, :backorderable, :variant_id
+    validates :count_on_hand, numericality: { greater_than_or_equal_to: 0 }, if: :verify_count_on_hand?
 
     delegate :weight, :should_track_inventory?, to: :variant
+
+    after_save :conditional_variant_touch, if: :changed?
+    after_touch { variant.touch }
 
     def backordered_inventory_units
       Spree::InventoryUnit.backordered_for_stock_item(self)
@@ -50,7 +52,15 @@ module Spree
       Spree::Variant.unscoped { super }
     end
 
+    def reduce_count_on_hand_to_zero
+      self.set_count_on_hand(0) if count_on_hand > 0
+    end
+
     private
+      def verify_count_on_hand?
+        count_on_hand_changed? && !backorderable? && (count_on_hand < count_on_hand_was) && (count_on_hand < 0)
+      end
+
       def count_on_hand=(value)
         write_attribute(:count_on_hand, value)
       end
@@ -63,6 +73,12 @@ module Spree
           backordered_inventory_units.first(number).each do |unit|
             unit.fill_backorder
           end
+        end
+      end
+
+      def conditional_variant_touch
+        if !Spree::Config.binary_inventory_cache || (count_on_hand_changed? && count_on_hand_change.any?(&:zero?))
+          variant.touch
         end
       end
   end

@@ -19,104 +19,84 @@
 #
 
 module Spree
-  class Product < ActiveRecord::Base
+  class Product < Spree::Base
+    extend FriendlyId
+    friendly_id :slug_candidates, use: :slugged
+
     acts_as_paranoid
-    has_many :product_option_types, dependent: :destroy
+
+    has_many :product_option_types, dependent: :destroy, inverse_of: :product
     has_many :option_types, through: :product_option_types
-    has_many :product_properties, dependent: :destroy
+    has_many :product_properties, dependent: :destroy, inverse_of: :product
     has_many :properties, through: :product_properties
 
-    has_many :classifications, dependent: :delete_all
+    has_many :classifications, dependent: :delete_all, inverse_of: :product
     has_many :taxons, through: :classifications
     has_and_belongs_to_many :promotion_rules, join_table: :spree_products_promotion_rules
 
     belongs_to :tax_category, class_name: 'Spree::TaxCategory'
-    belongs_to :shipping_category, class_name: 'Spree::ShippingCategory'
+    belongs_to :shipping_category, class_name: 'Spree::ShippingCategory', inverse_of: :products
 
     has_one :master,
+      -> { where is_master: true },
+      inverse_of: :product,
       class_name: 'Spree::Variant',
-      conditions: { is_master: true },
       dependent: :destroy
 
     has_many :variants,
-      class_name: 'Spree::Variant',
-      conditions: { is_master: false, deleted_at: nil },
-      order: "#{::Spree::Variant.quoted_table_name}.position ASC"
+      -> { where(is_master: false).order("#{::Spree::Variant.quoted_table_name}.position ASC") },
+      inverse_of: :product,
+      class_name: 'Spree::Variant'
 
     has_many :variants_including_master,
+      -> { order("#{::Spree::Variant.quoted_table_name}.position ASC") },
+      inverse_of: :product,
       class_name: 'Spree::Variant',
-      dependent: :destroy,
-      order: "#{::Spree::Variant.quoted_table_name}.position ASC"
+      dependent: :destroy
 
-    has_many :prices, through: :variants, order: 'spree_variants.position, spree_variants.id, currency'
+    has_many :prices, -> { order('spree_variants.position, spree_variants.id, currency') }, through: :variants
+
     has_many :stock_items, through: :variants_including_master
+    
+    has_many :line_items, through: :variants_including_master
+    has_many :orders, through: :line_items
 
     delegate_belongs_to :master, :sku, :price, :currency, :display_amount, :display_price, :weight, :height, :width, :depth, :is_master, :has_default_price?, :cost_currency, :price_in, :amount_in, :fulfillment_cost
-    delegate_belongs_to :master, :cost_price if Variant.table_exists? && Variant.column_names.include?('cost_price')
+
+    delegate_belongs_to :master, :cost_price
 
     after_create :set_master_variant_defaults
     after_create :add_properties_and_option_types_from_prototype
     after_create :build_variants_from_option_values_hash, if: :option_values_hash
+
     after_save :save_master
+    after_save :run_touch_callbacks, if: :anything_changed?
+    after_save :reset_nested_changes
+    after_touch :touch_taxons
 
     delegate :images, to: :master, prefix: true
     alias_method :images, :master_images
 
-    has_many :variant_images, source: :images, through: :variants_including_master, order: :position
-
-    accepts_nested_attributes_for :variants, allow_destroy: true
+    has_many :variant_images, -> { order(:position) }, source: :images, through: :variants_including_master
 
     validates :name, presence: true
-    validates :permalink, presence: true
     validates :price, presence: true, if: proc { Spree::Config[:require_master_price] }
     validates :shipping_category_id, presence: true
+    validates :slug, length: { minimum: 3 }
+    validates :slug, uniqueness: true
+
+    before_validation :normalize_slug, on: :update
+
+    after_destroy :punch_slug
 
     attr_accessor :option_values_hash
-
-    attr_accessible :available_on,
-                    :cost_currency,
-                    :deleted_at,
-                    :depth,
-                    :description,
-                    :height,
-                    :meta_description,
-                    :meta_keywords,
-                    :name,
-                    :option_type_ids,
-                    :option_values_hash,
-                    :permalink,
-                    :price,
-                    :product_properties_attributes,
-                    :prototype_id,
-                    :shipping_category_id,
-                    :sku,
-                    :tax_category_id,
-                    :taxon_ids,
-                    :weight,
-                    :width,
-                    :variants_attributes,
-                    :fulfillment_cost
-
-    attr_accessible :cost_price if Variant.table_exists? && Variant.column_names.include?('cost_price')
+    attr_accessible :fulfillment_cost
 
     accepts_nested_attributes_for :product_properties, allow_destroy: true, reject_if: lambda { |pp| pp[:property_name].blank? }
-
-    make_permalink order: :name
 
     alias :options :product_option_types
 
     after_initialize :ensure_master
-
-    before_destroy :punch_permalink
-
-    def variants_with_only_master
-      ActiveSupport::Deprecation.warn("[SPREE] Spree::Product#variants_with_only_master will be deprecated in Spree 1.3. Please use Spree::Product#master instead.")
-      master
-    end
-
-    def to_param
-      permalink.present? ? permalink : (permalink_was || name.to_s.to_url)
-    end
 
     # the master variant is not a member of the variants array
     def has_variants?
@@ -142,7 +122,7 @@ module Spree
       return if option_values_hash.nil?
       option_values_hash.keys.map(&:to_i).each do |id|
         self.option_type_ids << id unless option_type_ids.include?(id)
-        product_option_types.create({option_type_id: id}, without_protection: true) unless product_option_types.pluck(:option_type_id).include?(id)
+        product_option_types.create(option_type_id: id) unless product_option_types.pluck(:option_type_id).include?(id)
       end
     end
 
@@ -200,8 +180,8 @@ module Spree
     end
 
     def property(property_name)
-      return nil unless prop = properties.find_by_name(property_name)
-      product_properties.find_by_property_id(prop.id).try(:value)
+      return nil unless prop = properties.find_by(name: property_name)
+      product_properties.find_by(property: prop).try(:value)
     end
 
     def set_property(property_name, property_value)
@@ -212,22 +192,22 @@ module Spree
         else
           Property.create(name: property_name, presentation: property_name)
         end
-        product_property = ProductProperty.where(product_id: self.id, property_id: property.id).first_or_initialize
+        product_property = ProductProperty.where(product: self, property: property).first_or_initialize
         product_property.value = property_value
         product_property.save!
       end
     end
 
     def possible_promotions
-      promotion_ids = promotion_rules.map(&:activator_id).uniq
+      promotion_ids = promotion_rules.map(&:promotion_id).uniq
       Spree::Promotion.advertised.where(id: promotion_ids).reject(&:expired?)
     end
 
     def total_on_hand
-      if self.variants_including_master.any? { |v| !v.should_track_inventory? }
+      if any_variants_not_track_inventory?
         Float::INFINITY
       else
-        self.stock_items.sum(&:count_on_hand)
+        stock_items.sum(:count_on_hand)
       end
     end
 
@@ -235,51 +215,99 @@ module Spree
     # which would make AR's default finder return nil.
     # This is a stopgap for that little problem.
     def master
-      super || variants_including_master.with_deleted.where(:is_master => true).first
+      super || variants_including_master.with_deleted.where(is_master: true).first
     end
 
     private
 
-      # Builds variants from a hash of option types & values
-      def build_variants_from_option_values_hash
-        ensure_option_types_exist_for_values_hash
-        values = option_values_hash.values
-        values = values.inject(values.shift) { |memo, value| memo.product(value).map(&:flatten) }
-
-        values.each do |ids|
-          variant = variants.create({ option_value_ids: ids, price: master.price }, without_protection: true)
+    def add_properties_and_option_types_from_prototype
+      if prototype_id && prototype = Spree::Prototype.find_by(id: prototype_id)
+        prototype.properties.each do |property|
+          product_properties.create(property: property)
         end
-        save
+        self.option_types = prototype.option_types
       end
+    end
 
-      def add_properties_and_option_types_from_prototype
-        if prototype_id && prototype = Spree::Prototype.find_by_id(prototype_id)
-          prototype.properties.each do |property|
-            product_properties.create({property: property}, without_protection: true)
-          end
-          self.option_types = prototype.option_types
-        end
+    def any_variants_not_track_inventory?
+      if variants_including_master.loaded?
+        variants_including_master.any? { |v| !v.should_track_inventory? }
+      else
+        !Spree::Config.track_inventory_levels || variants_including_master.where(track_inventory: false).any?
       end
+    end
 
-      # ensures the master variant is flagged as such
-      def set_master_variant_defaults
-        master.is_master = true
+    # Builds variants from a hash of option types & values
+    def build_variants_from_option_values_hash
+      ensure_option_types_exist_for_values_hash
+      values = option_values_hash.values
+      values = values.inject(values.shift) { |memo, value| memo.product(value).map(&:flatten) }
+
+      values.each do |ids|
+        variant = variants.create(
+          option_value_ids: ids,
+          price: master.price
+        )
       end
+      save
+    end
 
-      # there's a weird quirk with the delegate stuff that does not automatically save the delegate object
-      # when saving so we force a save using a hook.
-      def save_master
-        master.save if master && (master.changed? || master.new_record? || (master.default_price && (master.default_price.changed? || master.default_price.new_record?)))
+    def ensure_master
+      return unless new_record?
+      self.master ||= Variant.new
+    end
+
+    def normalize_slug
+      self.slug = normalize_friendly_id(slug)
+    end
+
+    def punch_slug
+      update_column :slug, "#{Time.now.to_i}_#{slug}" # punch slug with date prefix to allow reuse of original
+    end
+
+    def anything_changed?
+      changed? || @nested_changes
+    end
+
+    def reset_nested_changes
+      @nested_changes = false
+    end
+
+    # there's a weird quirk with the delegate stuff that does not automatically save the delegate object
+    # when saving so we force a save using a hook.
+    def save_master
+      if master && (master.changed? || master.new_record? || (master.default_price && (master.default_price.changed? || master.default_price.new_record?)))
+        master.save
+        @nested_changes = true
       end
+    end
 
-      def ensure_master
-        return unless new_record?
-        self.master ||= Variant.new
-      end
+    # ensures the master variant is flagged as such
+    def set_master_variant_defaults
+      master.is_master = true
+    end
 
-      def punch_permalink
-        update_attribute :permalink, "#{Time.now.to_i}_#{permalink}" # punch permalink with date prefix
-      end  
+    # Try building a slug based on the following fields in increasing order of specificity.
+    def slug_candidates
+      [
+          :name,
+          [:name, :sku]
+      ]
+    end
+
+    def run_touch_callbacks
+      run_callbacks(:touch)
+    end
+
+    # Iterate through this products taxons and taxonomies and touch their timestamps in a batch
+    def touch_taxons
+      taxons_to_touch = taxons.map(&:self_and_ancestors).flatten.uniq
+      Spree::Taxon.where(id: taxons_to_touch.map(&:id)).update_all(updated_at: Time.current)
+
+      taxonomy_ids_to_touch = taxons_to_touch.map(&:taxonomy_id).flatten.uniq
+      Spree::Taxonomy.where(id: taxonomy_ids_to_touch).update_all(updated_at: Time.current)
+    end
+
   end
 end
 

@@ -1,11 +1,11 @@
 module Spree
-  class Price < ActiveRecord::Base
-    belongs_to :variant, class_name: 'Spree::Variant'
+  class Price < Spree::Base
+    acts_as_paranoid
+    belongs_to :variant, class_name: 'Spree::Variant', inverse_of: :prices, touch: true
 
     validate :check_price
     validates :amount, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
-
-    attr_accessible :variant_id, :currency, :amount
+    validate :validate_amount_maximum
 
     def display_amount
       money
@@ -30,6 +30,7 @@ module Spree
     end
 
     private
+
     def check_price
       raise "Price must belong to a variant" if variant.nil?
 
@@ -50,6 +51,14 @@ module Spree
       price.to_d
     end
 
+    def maximum_amount
+      BigDecimal '999999.99'
+    end
+
+    def validate_amount_maximum
+      if amount && amount > maximum_amount
+        errors.add :amount, I18n.t('errors.messages.less_than_or_equal_to', count: maximum_amount)
+      end
+    end
   end
 end
-

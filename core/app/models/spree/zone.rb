@@ -1,10 +1,8 @@
 module Spree
-  class Zone < ActiveRecord::Base
+  class Zone < Spree::Base
     has_many :zone_members, dependent: :destroy, class_name: "Spree::ZoneMember"
     has_many :tax_rates, dependent: :destroy
-    has_and_belongs_to_many :shipping_methods, :join_table => 'spree_shipping_methods_zones',
-                                               :class_name => 'Spree::ShippingMethod',
-                                               :foreign_key => 'zone_id'
+    has_and_belongs_to_many :shipping_methods, :join_table => 'spree_shipping_methods_zones'
 
     validates :name, presence: true, uniqueness: true
     after_save :remove_defunct_members
@@ -13,8 +11,25 @@ module Spree
     alias :members :zone_members
     accepts_nested_attributes_for :zone_members, allow_destroy: true, reject_if: proc { |a| a['zoneable_id'].blank? }
 
-    attr_accessible :name, :description, :default_tax, :kind, :zone_members,
-                    :zone_members_attributes, :state_ids, :country_ids
+    def self.default_tax
+      where(default_tax: true).first
+    end
+
+    # Returns the matching zone with the highest priority zone type (State, Country, Zone.)
+    # Returns nil in the case of no matches.
+    def self.match(address)
+      return unless address and matches = self.includes(:zone_members).
+        order('spree_zones.zone_members_count', 'spree_zones.created_at').
+        where("(spree_zone_members.zoneable_type = 'Spree::Country' AND spree_zone_members.zoneable_id = ?) OR (spree_zone_members.zoneable_type = 'Spree::State' AND spree_zone_members.zoneable_id = ?)", address.country_id, address.state_id).
+        references(:zones)
+
+      ['state', 'country'].each do |zone_kind|
+        if match = matches.detect { |zone| zone_kind == zone.kind }
+          return match
+        end
+      end
+      matches.first
+    end
 
     def kind
       if members.any? && !members.any? { |member| member.try(:zoneable_type).nil? }
@@ -41,27 +56,12 @@ module Spree
       end
     end
 
-    # Returns the matching zone with the highest priority zone type (State, Country, Zone.)
-    # Returns nil in the case of no matches.
-    def self.match(address)
-      return unless matches = self.includes(:zone_members).
-        order('zone_members_count', 'created_at').
-        select { |zone| zone.include? address }
-
-      ['state', 'country'].each do |zone_kind|
-        if match = matches.detect { |zone| zone_kind == zone.kind }
-          return match
-        end
-      end
-      matches.first
-    end
-
     # convenience method for returning the countries contained within a zone
     def country_list
       @countries ||= case kind
                      when 'country' then zoneables
                      when 'state' then zoneables.collect(&:country)
-                     else nil
+                     else []
                      end.flatten.compact.uniq
     end
 
@@ -72,12 +72,12 @@ module Spree
     # All zoneables belonging to the zone members.  Will be a collection of either
     # countries or states depending on the zone type.
     def zoneables
-      members.collect(&:zoneable)
+      members.includes(:zoneable).collect(&:zoneable)
     end
 
     def country_ids
       if kind == 'country'
-        members.collect(&:zoneable_id)
+        members.pluck(:zoneable_id)
       else
         []
       end
@@ -85,7 +85,7 @@ module Spree
 
     def state_ids
       if kind == 'state'
-        members.collect(&:zoneable_id)
+        members.pluck(:zoneable_id)
       else
         []
       end
@@ -111,10 +111,6 @@ module Spree
       end
     end
 
-    def self.default_tax
-      where(default_tax: true).first
-    end
-
     # Indicates whether the specified zone falls entirely within the zone performing
     # the check.
     def contains?(target)
@@ -122,9 +118,9 @@ module Spree
       return false if zone_members.empty? || target.zone_members.empty?
 
       if kind == target.kind
-        return false if target.zoneables.any? { |target_zoneable| zoneables.exclude?(target_zoneable) }
+        return false if (target.zoneables.collect(&:id) - zoneables.collect(&:id)).present?
       else
-        return false if target.zoneables.any? { |target_state| zoneables.exclude?(target_state.country) }
+        return false if (target.zoneables.collect(&:country).collect(&:id) - zoneables.collect(&:id)).present?
       end
       true
     end

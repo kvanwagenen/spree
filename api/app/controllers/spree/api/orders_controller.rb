@@ -1,91 +1,119 @@
 module Spree
   module Api
     class OrdersController < Spree::Api::BaseController
-      respond_to :json
+      wrap_parameters false
 
-      before_filter :find_and_authorize!, :except => [:index, :search, :create]
+      skip_before_filter :check_for_user_or_api_key, only: :apply_coupon_code
+      skip_before_filter :authenticate_user, only: :apply_coupon_code
+
+      before_filter :find_order, except: [:create, :mine, :index, :update]
+
+      # Dynamically defines our stores checkout steps to ensure we check authorization on each step.
+      Order.checkout_steps.keys.each do |step|
+        define_method step do
+          find_order
+          authorize! :update, @order, params[:token]
+        end
+      end
+
+      def cancel
+        authorize! :update, @order, params[:token]
+        @order.cancel! params[:reason]
+        respond_with(@order, :default_template => :show)
+      end
+
+      def create
+        authorize! :create, Order
+        order_user = if @current_user_roles.include?('admin') && order_params[:user_id]
+          Spree.user_class.find(order_params[:user_id])
+        else
+          current_api_user
+        end
+
+        import_params = if @current_user_roles.include?("admin")
+          params[:order].present? ? params[:order].permit! : {}
+        else
+          order_params
+        end
+
+        @order = Spree::Core::Importer::Order.import(order_user, import_params)
+        respond_with(@order, default_template: :show, status: 201)
+      end
+
+      def empty
+        authorize! :update, @order, order_token
+        @order.empty!
+        render text: nil, status: 200
+      end
 
       def index
-        # should probably look at turning this into a CanCan step
-        raise CanCan::AccessDenied unless current_api_user.has_spree_role?("admin")
+        authorize! :index, Order
         @orders = Order.ransack(params[:q]).result.page(params[:page]).per(params[:per_page])
         respond_with(@orders)
       end
 
       def show
+        authorize! :show, @order, order_token
         respond_with(@order)
       end
 
-      def create
-        nested_params[:line_items_attributes] = sanitize_line_items(nested_params[:line_items_attributes])
-        @order = Order.build_from_api(current_api_user, nested_params)
-        respond_with(@order, :default_template => :show, :status => 201)
-      end
-
       def update
-        # Parsing line items through as an update_attributes call in the API will result in
-        # many line items for the same variant_id being created. We must be smarter about this,
-        # hence the use of the update_line_items method, defined within order_decorator.rb.
-        line_items_params = sanitize_line_items(nested_params.delete("line_items_attributes"))
-        if @order.update_attributes(nested_params)
-          @order.update_line_items(line_items_params)
-          @order.line_items.reload
-          @order.update!
-          respond_with(@order, :default_template => :show)
+        find_order(true)
+        authorize! :update, @order, order_token
+
+        if @order.contents.update_cart(order_params)
+          user_id = params[:order][:user_id]
+          if current_api_user.has_spree_role?('admin') && user_id
+            @order.associate_user!(Spree.user_class.find(user_id))
+          end
+          respond_with(@order, default_template: :show)
         else
           invalid_resource!(@order)
         end
       end
 
-      def cancel
-        @order.cancel! params[:reason]
-        render :show
+      def mine
+        if current_api_user.persisted?
+          @orders = current_api_user.orders.reverse_chronological.ransack(params[:q]).result.page(params[:page]).per(params[:per_page])
+        else
+          render "spree/api/errors/unauthorized", status: :unauthorized
+        end
       end
 
-      def empty
-        @order.empty!
-        @order.update!
-        render :text => nil, :status => 200
+      def apply_coupon_code
+        find_order
+        authorize! :update, @order, order_token
+        @order.coupon_code = params[:coupon_code]
+        @handler = PromotionHandler::Coupon.new(@order).apply
+        status = @handler.successful? ? 200 : 422
+        render "spree/api/promotions/handler", :status => status
       end
 
       private
-
-      def nested_params
-        @nested_params ||= map_nested_attributes_keys(Order, params[:order] || {})
-      end
-
-      def sanitize_line_items(line_item_attributes)
-        return {} if line_item_attributes.blank?
-        line_item_attributes = line_item_attributes.map do |id, attributes|
-          attributes ||= id
-
-          # Faux Strong-Parameters code to strip price if user isn't an admin
-          if current_api_user.has_spree_role?("admin")
-            [id, attributes.slice(*Spree::LineItem.attr_accessible[:api])]
+        def order_params
+          if params[:order]
+            normalize_params
+            params.require(:order).permit(permitted_order_attributes)
           else
-            [id, attributes.slice(*Spree::LineItem.attr_accessible[:default])]
+            {}
           end
         end
-        line_item_attributes = Hash[line_item_attributes].delete_if { |k,v| v.empty? }
-      end
 
-      def find_order(lock = false)
-        @order = Spree::Order.lock(lock).find_by_number!(params[:id])
-        authorize! :update, @order, params[:order_token]
-      end
-
-      def next!(options={})
-        if @order.valid? && @order.next
-          render :show, :status => options[:status] || 200
-        else
-          render :could_not_transition, :status => 422
+        def normalize_params
+          params[:order][:payments_attributes] = params[:order].delete(:payments) if params[:order][:payments]
+          params[:order][:shipments_attributes] = params[:order].delete(:shipments) if params[:order][:shipments]
+          params[:order][:line_items_attributes] = params[:order].delete(:line_items) if params[:order][:line_items]
+          params[:order][:ship_address_attributes] = params[:order].delete(:ship_address) if params[:order][:ship_address]
+          params[:order][:bill_address_attributes] = params[:order].delete(:bill_address) if params[:order][:bill_address]
         end
-      end
 
-      def find_and_authorize!
-        find_order(true)
-        authorize! :read, @order
-      end
+        def find_order(lock = false)
+          @order = Spree::Order.lock(lock).find_by!(number: params[:id])
+        end
+
+        def order_id
+          super || params[:id]
+        end
     end
   end
 end

@@ -1,7 +1,6 @@
 module Spree
   module Api
     class PaymentsController < Spree::Api::BaseController
-      respond_to :json
 
       before_filter :find_order
       before_filter :find_payment, only: [:update, :show, :authorize, :purchase, :capture, :void, :credit]
@@ -12,14 +11,25 @@ module Spree
       end
 
       def new
-        @payment_methods = Spree::PaymentMethod.where(:environment => Rails.env)
+        @payment_methods = Spree::PaymentMethod.available
         respond_with(@payment_method)
       end
 
       def create
-        @payment = @order.payments.build(params[:payment])
+        @payment = @order.payments.build(payment_params)
         if @payment.save
-          respond_with(@payment, :status => 201, :default_template => :show)
+          respond_with(@payment, status: 201, default_template: :show)
+        else
+          invalid_resource!(@payment)
+        end
+      end
+
+      def update
+        authorize! params[:action], @payment
+        if ! @payment.pending?
+          render 'update_forbidden', status: 403
+        elsif @payment.update_attributes(payment_params)
+          respond_with(@payment, default_template: :show)
         else
           invalid_resource!(@payment)
         end
@@ -66,26 +76,24 @@ module Spree
 
       private
 
-      def find_order
-        @order = Order.find_by_number(params[:order_id])
-        authorize! :read, @order
-      end
-
-      def find_payment
-        @payment = @order.payments.find(params[:id])
-      end
-
-      def perform_payment_action(action, *args)
-        authorize! action, Payment
-
-        begin
-          @payment.send("#{action}!", *args)
-          respond_with(@payment, :default_template => :show)
-        rescue Spree::Core::GatewayError => e
-          @error = e.message
-          render "spree/api/errors/gateway_error", :status => 422
+        def find_order
+          @order = Spree::Order.find_by(number: order_id)
+          authorize! :read, @order
         end
-      end
+
+        def find_payment
+          @payment = @order.payments.find(params[:id])
+        end
+
+        def perform_payment_action(action, *args)
+          authorize! action, Payment
+          @payment.send("#{action}!", *args)
+          respond_with(@payment, default_template: :show)
+        end
+
+        def payment_params
+          params.require(:payment).permit(permitted_payment_attributes)
+        end
     end
   end
 end

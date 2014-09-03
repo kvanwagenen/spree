@@ -1,6 +1,7 @@
 module Spree
-  class StockLocation < ActiveRecord::Base
-    has_many :stock_items, dependent: :destroy
+  class StockLocation < Spree::Base
+    has_many :shipments
+    has_many :stock_items, dependent: :delete_all
     has_many :stock_movements, through: :stock_items
 
     belongs_to :state, class_name: 'Spree::State'
@@ -8,15 +9,15 @@ module Spree
 
     validates_presence_of :name
 
-    attr_accessible :name, :active, :address1, :address2, :city, :zipcode,
-        :backorderable_default, :state_name, :state_id, :country_id, :phone,
-        :country_id, :propagate_all_variants, :admin_name
-
     scope :active, -> { where(active: true) }
 
     after_create :create_stock_items, :if => "self.propagate_all_variants?"
 
-    # Wrapper for creating a new stock item respecting the backorderable config 
+    def state_text
+      state.try(:abbr) || state.try(:name) || state_name
+    end
+    
+    # Wrapper for creating a new stock item respecting the backorderable config
     def propagate_variant(variant)
       self.stock_items.create!(variant: variant, backorderable: self.backorderable_default)
     end
@@ -50,7 +51,10 @@ module Spree
 
     def restock_backordered(variant, quantity, originator = nil)
       item = stock_item_or_create(variant)
-      item.update_column(:count_on_hand, item.count_on_hand + quantity)
+      item.update_columns(
+        count_on_hand: item.count_on_hand + quantity,
+        updated_at: Time.now
+      )
     end
 
     def unstock(variant, quantity, originator = nil)

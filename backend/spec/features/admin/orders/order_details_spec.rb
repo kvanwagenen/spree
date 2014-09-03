@@ -11,7 +11,7 @@ describe "Order Details", js: true do
   let!(:shipping_method) { create(:shipping_method, :name => "Default") }
 
   before do
-    order.shipments.create({stock_location_id: stock_location.id}, without_protection: true)
+    order.shipments.create(stock_location_id: stock_location.id)
     order.contents.add(product.master, 2)
   end
 
@@ -52,34 +52,37 @@ describe "Order Details", js: true do
         page.should have_content("spree t-shirt")
 
         within_row(1) do
-          click_icon :trash
+          accept_alert do
+            click_icon :trash
+          end
         end
 
         # Click "ok" on confirmation dialog
-        page.driver.browser.switch_to.alert.accept
         page.should_not have_content("spree t-shirt")
       end
 
       # Regression test for #3862
-      it "can remove an item from a shipment" do
+      it "can cancel removing an item from a shipment" do
         page.should have_content("spree t-shirt")
 
         within_row(1) do
-          click_icon :trash
+          # Click "cancel" on confirmation dialog
+          dismiss_alert do
+            click_icon :trash
+          end
         end
 
-        # Click "cancel" on confirmation dialog
-        page.driver.browser.switch_to.alert.dismiss
         page.should have_content("spree t-shirt")
       end
 
       it "can add tracking information" do
-        within("table.index tr:nth-child(5)") do
+        within(".show-tracking") do
           click_icon :edit
         end
         fill_in "tracking", :with => "FOOBAR"
         click_icon :ok
 
+        page.should_not have_css("input[name=tracking]")
         page.should have_content("Tracking: FOOBAR")
       end
 
@@ -91,9 +94,16 @@ describe "Order Details", js: true do
         end
         select2 "Default", :from => "Shipping Method"
         click_icon :ok
-        wait_for_ajax
 
+        page.should_not have_css('#selected_shipping_rate_id')
         page.should have_content("Default")
+      end
+
+      it "will show the variant sku" do
+        order = create(:completed_order_with_totals)
+        visit spree.edit_admin_order_path(order)
+        sku = order.line_items.first.variant.sku
+        expect(page).to have_content("SKU: #{sku}")
       end
 
       context "variant out of stock and not backorderable" do
@@ -142,8 +152,8 @@ describe "Order Details", js: true do
               click_icon :ok
             end
 
-            wait_for_ajax
-            page.should have_content("TOTAL: $100.00")
+            # poltergeist and selenium disagree on the existance of this space
+            page.should have_content(/TOTAL: ?\$100\.00/)
           end
 
           it "can add tracking information for the second shipment" do
@@ -151,13 +161,42 @@ describe "Order Details", js: true do
               within("tr.show-tracking") do
                 click_icon :edit
               end
-              wait_for_ajax
+
               fill_in "tracking", :with => "TRACKING_NUMBER"
               click_icon :ok
             end
 
-            wait_for_ajax
+            page.should_not have_css("input[name=tracking]")
             page.should have_content("Tracking: TRACKING_NUMBER")
+          end
+
+          it "can change the second shipment's shipping method" do
+            click_link "Customer Details"
+
+            check "order_use_billing"
+            fill_in "order_bill_address_attributes_firstname", :with => "Joe"
+            fill_in "order_bill_address_attributes_lastname", :with => "User"
+            fill_in "order_bill_address_attributes_address1", :with => "7735 Old Georgetown Road"
+            fill_in "order_bill_address_attributes_address2", :with => "Suite 510"
+            fill_in "order_bill_address_attributes_city", :with => "Bethesda"
+            fill_in "order_bill_address_attributes_zipcode", :with => "20814"
+            fill_in "order_bill_address_attributes_phone", :with => "301-444-5002"
+            select2 "Alabama", :from => "State"
+            select2 "United States of America", :from => "Country"
+            click_icon :refresh
+
+            click_link "Order Details"
+
+            within("#shipment_#{order.shipments.last.id}") do
+              within("tr.show-method") do
+                click_icon :edit
+              end
+              select2 "Default", :from => "Shipping Method"
+            end
+            click_icon :ok
+
+            page.should_not have_css('#selected_shipping_rate_id')
+            page.should have_content("Default")
           end
         end
       end
@@ -170,10 +209,34 @@ describe "Order Details", js: true do
         end
       end
 
+      context "variant doesn't track inventory" do
+        before do
+          tote.master.update_column :track_inventory, false
+          # make sure there's no stock level for any item
+          tote.master.stock_items.update_all count_on_hand: 0, backorderable: false
+        end
+
+        it "adds variant to order just fine"  do
+          select2_search tote.name, :from => Spree.t(:name_or_sku)
+
+          within("table.stock-levels") do
+            fill_in "stock_item_quantity", :with => 1
+            click_icon :plus
+          end
+
+          within(".stock-contents") do
+            page.should have_content(tote.name)
+          end
+        end
+      end
     end
   end
 
   context 'with only read permissions' do
+    before do 
+      Spree::Admin::BaseController.any_instance.stub(:spree_current_user).and_return(nil)
+    end
+
     custom_authorization! do |user|
       can [:admin, :index, :read, :edit], Spree::Order
     end
@@ -207,8 +270,13 @@ describe "Order Details", js: true do
       can [:admin, :manage, :read, :ship], Spree::Shipment
     end
 
+    before do
+      Spree::Api::BaseController.any_instance.stub :try_spree_current_user => Spree.user_class.new
+    end
+
     it 'should not display order tabs or edit buttons without ability' do
       visit spree.edit_admin_order_path(order)
+
       # Order Form
       page.should_not have_css('.edit-item')
       # Order Tabs
@@ -226,8 +294,8 @@ describe "Order Details", js: true do
       end
       fill_in "tracking", :with => "FOOBAR"
       click_icon :ok
-      wait_for_ajax
 
+      page.should_not have_css("input[name=tracking]")
       page.should have_content("Tracking: FOOBAR")
     end
 
@@ -239,8 +307,8 @@ describe "Order Details", js: true do
       end
       select2 "Default", :from => "Shipping Method"
       click_icon :ok
-      wait_for_ajax
 
+      page.should_not have_css('#selected_shipping_rate_id')
       page.should have_content("Default")
     end
 

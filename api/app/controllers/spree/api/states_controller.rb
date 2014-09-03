@@ -1,6 +1,7 @@
 module Spree
   module Api
     class StatesController < Spree::Api::BaseController
+      skip_before_filter :set_expiry
       skip_before_filter :check_for_user_or_api_key
       skip_before_filter :authenticate_user
 
@@ -12,7 +13,10 @@ module Spree
           @states = @states.page(params[:page]).per(params[:per_page])
         end
 
-        respond_with(@states)
+        state = @states.last
+        if stale?(state)
+          respond_with(@states)
+        end
       end
 
       def show
@@ -23,10 +27,10 @@ module Spree
       private
         def scope
           if params[:country_id]
-            @country = Country.find(params[:country_id])
-            return @country.states
+            @country = Country.accessible_by(current_ability, :read).find(params[:country_id])
+            return @country.states.accessible_by(current_ability, :read)
           else
-            return State.scoped
+            return State.accessible_by(current_ability, :read)
           end
         end
     end

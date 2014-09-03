@@ -16,12 +16,12 @@ module Spree
     context "as a normal user" do
       it "cannot list stock items for a stock location" do
         api_get :index, stock_location_id: stock_location.to_param
-        response.status.should == 401
+        response.status.should == 404
       end
 
       it "cannot see a stock item" do
         api_get :show, stock_location_id: stock_location.to_param, id: stock_item.to_param
-        response.status.should == 401
+        response.status.should == 404
       end
 
       it "cannot create a stock item" do
@@ -35,17 +35,17 @@ module Spree
         }
 
         api_post :create, params
-        response.status.should == 401
+        response.status.should == 404
       end
 
       it "cannot update a stock item" do
         api_put :update, stock_location_id: stock_location.to_param, stock_item_id: stock_item.to_param
-        response.status.should == 401
+        response.status.should == 404
       end
 
       it "cannot destroy a stock item" do
         api_delete :destroy, stock_location_id: stock_location.to_param, stock_item_id: stock_item.to_param
-        response.status.should == 401
+        response.status.should == 404
       end
     end
 
@@ -55,7 +55,7 @@ module Spree
       it 'cannot list of stock items' do
         api_get :index, stock_location_id: stock_location.to_param
         json_response['stock_items'].first.should have_attributes(attributes)
-        json_response['stock_items'].first['variant']['sku'].should eq 'ABC'
+        json_response['stock_items'].first['variant']['sku'].should include 'ABC'
       end
 
       it 'requires a stock_location_id to be passed as a parameter' do
@@ -114,7 +114,7 @@ module Spree
         response.status.should == 200
         json_response['count_on_hand'].should eq 50
       end
-
+      
       it 'can update a batch of stock items' do 
         params = {
           stock_items: [
@@ -160,4 +160,3 @@ module Spree
     end
   end
 end
-

@@ -12,7 +12,7 @@ module Spree
 
     context "as a normal user" do
       before do
-        controller.stub :current_api_user => user
+        controller.stub :try_spree_current_user => user
       end
 
       it "can get own details" do
@@ -24,7 +24,7 @@ module Spree
       it "cannot get other users details" do
         api_get :show, :id => stranger.id
 
-        assert_unauthorized!
+        assert_not_found!
       end
 
       it "can learn how to create a new user" do
@@ -46,13 +46,38 @@ module Spree
       end
 
       it "can update own details" do
-        api_put :update, :id => user.id, :user => { :email => "mine@example.com" }
-        json_response['email'].should eq 'mine@example.com'
+        country = create(:country)
+        api_put :update, id: user.id, user: {
+          email: "mine@example.com",
+          bill_address_attributes: {
+            first_name: 'First',
+            last_name: 'Last',
+            address1: '1 Test Rd',
+            city: 'City',
+            country_id: country.id,
+            state_id: 1,
+            zipcode: '55555',
+            phone: '5555555555'
+          },
+          ship_address_attributes: {
+            first_name: 'First',
+            last_name: 'Last',
+            address1: '1 Test Rd',
+            city: 'City',
+            country_id: country.id,
+            state_id: 1,
+            zipcode: '55555',
+            phone: '5555555555'
+          }
+        }
+        expect(json_response['email']).to eq 'mine@example.com'
+        expect(json_response['bill_address']).to_not be_nil
+        expect(json_response['ship_address']).to_not be_nil
       end
 
       it "cannot update other users details" do
         api_put :update, :id => stranger.id, :user => { :email => "mine@example.com" }
-        assert_unauthorized!
+        assert_not_found!
       end
 
       it "can delete itself" do
@@ -62,7 +87,7 @@ module Spree
 
       it "cannot delete other user" do
         api_delete :destroy, :id => stranger.id
-        assert_unauthorized!
+        assert_not_found!
       end
 
       it "should only get own details on index" do
@@ -79,7 +104,7 @@ module Spree
       sign_in_as_admin!
 
       it "gets all users" do
-        Spree::LegacyUser.stub :find_by_spree_api_key => current_api_user
+        Spree::LegacyUser.stub(:find_by).with(hash_including(:spree_api_key)) { current_api_user }
 
         2.times { create(:user) }
 
@@ -119,7 +144,7 @@ module Spree
       it "cannot destroy user with orders" do
         create(:completed_order_with_totals, :user => user)
         api_delete :destroy, :id => user.id
-        json_response["exception"].should eq "Spree::LegacyUser::DestroyWithOrdersError"
+        json_response["exception"].should eq "Spree::Core::DestroyWithOrdersError"
         response.status.should == 422
       end
 

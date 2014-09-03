@@ -4,17 +4,13 @@ FactoryGirl.define do
     description { generate(:random_description) }
     price 19.99
     cost_price 17.00
-    sku 'ABC'
+    sku { "ABC-#{Kernel.rand(9999)}" }
     available_on { 1.year.ago }
     deleted_at nil
     shipping_category { |r| Spree::ShippingCategory.first || r.association(:shipping_category) }
 
     # ensure stock item will be created for this products master
     before(:create) { create(:stock_location) if Spree::StockLocation.count == 0 }
-
-    after(:create) do |p|
-      p.variants_including_master.each { |v| v.save! }
-    end
 
     factory :custom_product do
       name 'Custom Product'

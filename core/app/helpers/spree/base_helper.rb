@@ -13,20 +13,18 @@ module Spree
     end
 
     def link_to_cart(text = nil)
-      return "" if current_spree_page?(spree.cart_path)
-
       text = text ? h(text) : Spree.t('cart')
       css_class = nil
 
-      if current_order.nil? or current_order.line_items.empty?
+      if simple_current_order.nil? or simple_current_order.item_count.zero?
         text = "#{text}: (#{Spree.t('empty')})"
         css_class = 'empty'
       else
-        text = "#{text}: (#{current_order.item_count})  <span class='amount'>#{current_order.display_total.to_html}</span>".html_safe
+        text = "#{text}: (#{simple_current_order.item_count})  <span class='amount'>#{simple_current_order.display_total.to_html}</span>"
         css_class = 'full'
       end
 
-      link_to text, spree.cart_path, :class => "cart-info #{css_class}"
+      link_to text.html_safe, spree.cart_path, :class => "cart-info #{css_class}"
     end
 
     # human readable list of variant options
@@ -48,8 +46,8 @@ module Spree
       end
 
       meta.reverse_merge!({
-        keywords: Spree::Config[:default_meta_keywords],
-        description: Spree::Config[:default_meta_description]
+        keywords: current_store.meta_keywords,
+        description: current_store.meta_description,
       })
       meta
     end
@@ -70,10 +68,10 @@ module Spree
     end
 
     def flash_messages(opts = {})
-      opts[:ignore_types] = [:commerce_tracking].concat(Array(opts[:ignore_types]) || [])
+      ignore_types = ["order_completed"].concat(Array(opts[:ignore_types]).map(&:to_s) || [])
 
       flash.each do |msg_type, text|
-        unless opts[:ignore_types].include?(msg_type)
+        unless ignore_types.include?(msg_type)
           concat(content_tag :div, text, class: "flash #{msg_type}")
         end
       end
@@ -109,7 +107,7 @@ module Spree
     end
 
     def available_countries
-      checkout_zone = Zone.find_by_name(Spree::Config[:checkout_zone])
+      checkout_zone = Zone.find_by(name: Spree::Config[:checkout_zone])
 
       if checkout_zone && checkout_zone.kind == 'country'
         countries = checkout_zone.country_list
@@ -133,11 +131,6 @@ module Spree
        false
     rescue
        Gem.available?(name)
-    end
-
-    def money(amount)
-      ActiveSupport::Deprecation.warn("[SPREE] Spree::BaseHelper#money will be deprecated.  It relies upon a single master currency.  You can instead create a Spree::Money.new(amount, { :currency => your_currency}) or see if the object you're working with returns a Spree::Money object to use.")
-      Spree::Money.new(amount)
     end
 
     def display_price(product_or_variant)
@@ -169,7 +162,6 @@ module Spree
     end
 
     private
-
     # Returns style of image or nil
     def image_style_from_method_name(method_name)
       if style = method_name.to_s.sub(/_image$/, '')
@@ -201,6 +193,5 @@ module Spree
         end
       end
     end
-
   end
 end

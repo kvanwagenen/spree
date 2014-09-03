@@ -15,7 +15,7 @@ module SpreeCmd
 
       directory 'app', "#{file_name}/app"
       directory 'lib', "#{file_name}/lib"
-      directory 'script', "#{file_name}/script"
+      directory 'bin', "#{file_name}/bin"
 
       template 'extension.gemspec', "#{file_name}/#{file_name}.gemspec"
       template 'Gemfile', "#{file_name}/Gemfile"
@@ -27,7 +27,6 @@ module SpreeCmd
       template 'config/locales/en.yml', "#{file_name}/config/locales/en.yml"
       template 'rspec', "#{file_name}/.rspec"
       template 'spec/spec_helper.rb.tt', "#{file_name}/spec/spec_helper.rb"
-      template 'Versionfile', "#{file_name}/Versionfile"
     end
 
     def final_banner
@@ -51,7 +50,7 @@ module SpreeCmd
       end
 
       def spree_version
-        '2.0.12.beta'
+        '2.3.3.beta'
       end
 
       def use_prefix(prefix)

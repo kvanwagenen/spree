@@ -10,6 +10,8 @@ require 'paperclip'
 require 'paranoia'
 require 'ransack'
 require 'state_machine'
+require 'friendly_id'
+require 'font-awesome-rails'
 
 module Spree
 
@@ -28,7 +30,7 @@ module Spree
   # Example:
   #
   #   Spree.config do |config|
-  #     config.site_name = "An awesome Spree site"
+  #     config.track_inventory_levels = false
   #   end
   #
   # This method is defined within the core gem on purpose.
@@ -36,49 +38,48 @@ module Spree
   def self.config(&block)
     yield(Spree::Config)
   end
+
+  module Core
+    autoload :ProductFilters, "spree/core/product_filters"
+
+    class GatewayError < RuntimeError; end
+    class DestroyWithOrdersError < StandardError; end
+  end
 end
 
 require 'spree/core/version'
+
+require 'spree/core/environment_extension'
+require 'spree/core/environment/calculators'
+require 'spree/core/environment'
+require 'spree/promo/environment'
+require 'spree/migrations'
 require 'spree/core/engine'
 
 require 'spree/i18n'
 require 'spree/money'
-require 'spree/promo/coupon_applicator'
 
+require 'spree/permitted_attributes'
+require 'spree/core/user_address'
+require 'spree/core/user_payment_source'
 require 'spree/core/delegate_belongs_to'
-require 'spree/core/ext/active_record'
 require 'spree/core/permalinks'
-require 'spree/core/token_resource'
 require 'spree/core/calculated_adjustments'
+require 'spree/core/adjustment_source'
 require 'spree/core/product_duplicator'
+require 'spree/core/controller_helpers'
+require 'spree/core/controller_helpers/search'
+require 'spree/core/controller_helpers/ssl'
+require 'spree/core/controller_helpers/store'
+require 'spree/core/controller_helpers/strong_parameters'
 
-ActiveRecord::Base.class_eval do
-  include CollectiveIdea::Acts::NestedSet
-end
+require 'spree/core/importer'
 
-# Monkey patch to give us miliseconds precision in timestamps
-module ActiveSupport
-  class TimeWithZone
-    # Coerces time to a string for JSON encoding. The default format is ISO 8601. You can get
-    # %Y/%m/%d %H:%M:%S +offset style by setting <tt>ActiveSupport::JSON::Encoding.use_standard_json_time_format</tt>
-    # to false.
-    #
-    # ==== Examples
-    #
-    #   # With ActiveSupport::JSON::Encoding.use_standard_json_time_format = true
-    #   Time.utc(2005,2,1,15,15,10).in_time_zone.to_json
-    #   # => "2005-02-01T15:15:10.001Z"
-    #
-    #   # With ActiveSupport::JSON::Encoding.use_standard_json_time_format = false
-    #   Time.utc(2005,2,1,15,15,10).in_time_zone.to_json
-    #   # => "2005/02/01 15:15:10 +0000"
-    #
-    def as_json(options = nil)
-      if ActiveSupport::JSON::Encoding.use_standard_json_time_format
-        xmlschema(3)
-      else
-        %(#{time.strftime("%Y/%m/%d %H:%M:%S")} #{formatted_offset(false)})
-      end
+# Hack waiting on https://github.com/pluginaweek/state_machine/pull/275
+module StateMachine
+  module Integrations
+    module ActiveModel
+      public :around_validation
     end
   end
 end

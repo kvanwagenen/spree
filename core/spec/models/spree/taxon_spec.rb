@@ -43,7 +43,7 @@ describe Spree::Taxon do
       context "setting a new node sibling position via :child_index=" do
         let(:idx) { rand(0..100) }
         before { parent.stub(:move_to_child_with_index) }
-        
+
         context "taxon is not new" do
           before { taxon.stub(:new_record?).and_return(false) }
 
@@ -63,7 +63,7 @@ describe Spree::Taxon do
     let(:taxonomy) { create(:taxonomy) }
 
     it "does not error out" do
-      expect { taxonomy.root.children.where(:name => "Some name").first_or_create }.not_to raise_error
+      expect { taxonomy.root.children.unscoped.where(:name => "Some name").first_or_create }.not_to raise_error
     end
   end
 end

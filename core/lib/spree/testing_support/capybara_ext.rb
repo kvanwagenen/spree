@@ -4,7 +4,7 @@ module CapybaraExt
   end
 
   def click_icon(type)
-    find(".icon-#{type}").click
+    find(".fa-#{type}").click
   end
 
   def eventually_fill_in(field, options={})
@@ -103,12 +103,29 @@ module CapybaraExt
 
   def wait_for_ajax
     counter = 0
-    while page.evaluate_script("$.active").to_i > 0
+    while page.evaluate_script("typeof($) === 'undefined' || $.active > 0")
       counter += 1
       sleep(0.1)
       raise "AJAX request took longer than 5 seconds." if counter >= 50
     end
   end
+
+  def accept_alert
+    page.evaluate_script('window.confirm = function() { return true; }')
+    yield
+  end
+
+  def dismiss_alert
+    page.evaluate_script('window.confirm = function() { return false; }')
+    yield
+    # Restore existing default
+    page.evaluate_script('window.confirm = function() { return true; }')
+  end
+end
+
+Capybara.configure do |config|
+  config.match = :prefer_exact
+  config.ignore_hidden_elements = true
 end
 
 RSpec::Matchers.define :have_meta do |name, expected|

@@ -18,11 +18,11 @@ begin
   require File.expand_path("../dummy/config/environment", __FILE__)
 rescue LoadError
   puts "Could not load dummy application. Please ensure you have run `bundle exec rake test_app`"
+  exit
 end
 
 require 'rspec/rails'
 require 'rspec/autorun'
-require 'database_cleaner'
 require 'ffaker'
 
 # Requires supporting ruby files with custom matchers and macros, etc,
@@ -32,6 +32,7 @@ Dir[File.dirname(__FILE__) + "/support/**/*.rb"].each {|f| require f}
 require 'spree/testing_support/factories'
 require 'spree/testing_support/preferences'
 
+require 'spree/api/testing_support/caching'
 require 'spree/api/testing_support/helpers'
 require 'spree/api/testing_support/setup'
 
@@ -50,22 +51,5 @@ RSpec.configure do |config|
     Spree::Api::Config[:requires_authentication] = true
   end
 
-  # Using truncation to prevent Ruby 1.9.3 specific error:
-  # SQLite3::SQLException: cannot start a transaction within a transaction: begin transaction
-  # http://stackoverflow.com/questions/12220901/sqlite3sqlexception-when-using-database-cleaner-with-rails-spork-rspec
-  unless RUBY_VERSION >= '2.0.0'
-    # If you're not using ActiveRecord, or you'd prefer not to run each of your
-    # examples within a transaction, comment the following line or assign false
-    # instead of true.
-    config.use_transactional_fixtures = false
-
-    config.before do
-      DatabaseCleaner.strategy = :truncation
-      DatabaseCleaner.start
-    end
-
-    config.after do
-      DatabaseCleaner.clean
-    end
-  end
+  config.use_transactional_fixtures = true
 end

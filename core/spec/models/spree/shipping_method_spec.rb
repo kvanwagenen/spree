@@ -1,15 +1,21 @@
 require 'spec_helper'
 
-describe Spree::ShippingMethod do
-  context 'calculators' do
-    let(:shipping_method){ create(:shipping_method) }
+class DummyShippingCalculator < Spree::ShippingCalculator
+end
 
-    it "Should reject calculators that don't inherit from Spree::Calculator::Shipping::" do
+describe Spree::ShippingMethod do
+  let(:shipping_method){ create(:shipping_method) }
+
+  context 'calculators' do
+    it "Should reject calculators that don't inherit from Spree::ShippingCalculator" do
       Spree::ShippingMethod.stub_chain(:spree_calculators, :shipping_methods).and_return([
-            Spree::Calculator::Shipping::FlatPercentItemTotal,
-            Spree::Calculator::Shipping::PriceSack,
-            Spree::Calculator::DefaultTax])
-      Spree::ShippingMethod.calculators.should == [Spree::Calculator::Shipping::FlatPercentItemTotal, Spree::Calculator::Shipping::PriceSack ]
+        Spree::Calculator::Shipping::FlatPercentItemTotal,
+        Spree::Calculator::Shipping::PriceSack,
+        Spree::Calculator::DefaultTax,
+        DummyShippingCalculator # included as regression test for https://github.com/spree/spree/issues/3109
+      ])
+
+      Spree::ShippingMethod.calculators.should == [Spree::Calculator::Shipping::FlatPercentItemTotal, Spree::Calculator::Shipping::PriceSack, DummyShippingCalculator ]
       Spree::ShippingMethod.calculators.should_not == [Spree::Calculator::DefaultTax]
     end
   end
@@ -48,8 +54,6 @@ describe Spree::ShippingMethod do
   end
 
   context 'factory' do
-    let(:shipping_method){ create :shipping_method }
-
     it "should set calculable correctly" do
       shipping_method.calculator.calculable.should == shipping_method
     end
@@ -70,6 +74,15 @@ describe Spree::ShippingMethod do
           end
         end
       end
+    end
+  end
+
+  # Regression test for #4320
+  context "soft deletion" do
+    let(:shipping_method) { create(:shipping_method) }
+    it "soft-deletes when destroy is called" do
+      shipping_method.destroy
+      shipping_method.deleted_at.should_not be_blank
     end
   end
 end

@@ -85,7 +85,7 @@ variants = [
   {
     :product => ror_baseball_jersey,
     :option_values => [extra_large, green],
-    :sku => "ROR-00012",
+    :sku => "ROR-00010",
     :cost_price => 17
   },
 ]
@@ -100,7 +100,7 @@ masters = {
     :cost_price => 17
   },
   ror_bag => {
-    :sku => "ROR-00012",
+    :sku => "ROR-10012",
     :cost_price => 21
   },
   ror_jr_spaghetti => {
@@ -157,9 +157,7 @@ masters = {
   }
 }
 
-variants.each do |variant_attrs|
-  Spree::Variant.create!(variant_attrs, :without_protection => true)
-end
+Spree::Variant.create!(variants)
 
 masters.each do |product, variant_attrs|
   product.master.update_attributes!(variant_attrs)

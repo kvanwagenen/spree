@@ -19,6 +19,7 @@ begin
   require File.expand_path("../dummy/config/environment", __FILE__)
 rescue LoadError
   puts "Could not load dummy application. Please ensure you have run `bundle exec rake test_app`"
+  exit
 end
 
 require 'rspec/rails'
@@ -41,6 +42,9 @@ require 'spree/testing_support/capybara_ext'
 
 require 'paperclip/matchers'
 
+require 'capybara/poltergeist'
+Capybara.javascript_driver = :poltergeist
+
 RSpec.configure do |config|
   config.color = true
   config.mock_with :rspec
@@ -50,8 +54,19 @@ RSpec.configure do |config|
   # instead of true.
   config.use_transactional_fixtures = false
 
+  # A workaround to deal with random failure caused by phantomjs. Turn it on
+  # by setting ENV['RSPEC_RETRY_COUNT']. Limit it to features tests where
+  # phantomjs is used.
+  config.before(:all, :type => :feature) do
+    if ENV['RSPEC_RETRY_COUNT']
+      config.verbose_retry       = true # show retry status in spec process
+      config.default_retry_count = ENV['RSPEC_RETRY_COUNT'].to_i
+    end
+  end
+
   config.before :suite do
     Capybara.match = :prefer_exact
+    DatabaseCleaner.clean_with :truncation
   end
 
   config.before(:each) do
@@ -66,18 +81,21 @@ RSpec.configure do |config|
     if ActiveRecord::Base.connection.open_transactions < 0
       ActiveRecord::Base.connection.increment_open_transactions
     end
+
     DatabaseCleaner.start
     reset_spree_preferences
   end
 
   config.after(:each) do
+    # Ensure js requests finish processing before advancing to the next test
+    wait_for_ajax if example.metadata[:js]
+
     DatabaseCleaner.clean
   end
 
   config.after(:each, :type => :feature) do
     missing_translations = page.body.scan(/translation missing: #{I18n.locale}\.(.*?)[\s<\"&]/)
     if missing_translations.any?
-      #binding.pry
       puts "Found missing translations: #{missing_translations.inspect}"
       puts "In spec: #{example.location}"
     end
@@ -91,6 +109,8 @@ RSpec.configure do |config|
   config.include Spree::TestingSupport::Flash
 
   config.include Paperclip::Shoulda::Matchers
+
+  config.extend WithModel
 
   config.fail_fast = ENV['FAIL_FAST'] || false
 end

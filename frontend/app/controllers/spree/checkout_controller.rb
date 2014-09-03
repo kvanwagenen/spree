@@ -6,7 +6,6 @@ module Spree
   class CheckoutController < Spree::StoreController
     ssl_required
 
-    before_filter :log_params
     before_filter :load_order_with_lock
 
     before_filter :ensure_order_not_completed
@@ -24,24 +23,19 @@ module Spree
 
     rescue_from Spree::Core::GatewayError, :with => :rescue_from_spree_gateway_error
 
-    def log_params
-      Rails.logger.error("CheckoutUpdateParams: #{params}")
-    end
-
     # Updates the order and advances to the next state (when possible.)
     def update
-      if @order.update_attributes(object_params)
-        fire_event('spree.checkout.update')
-
+      if @order.update_from_params(params, permitted_checkout_attributes, request.headers.env)
+        @order.temporary_address = !params[:save_user_address]
         unless @order.next
           flash[:error] = @order.errors.full_messages.join("\n")
           redirect_to checkout_state_path(@order.state) and return
         end
 
         if @order.completed?
-          session[:order_id] = nil
+          @current_order = nil
           flash.notice = Spree.t(:order_processed_successfully)
-          flash[:commerce_tracking] = "nothing special"
+          flash['order_completed'] = true
           redirect_to completion_route
         else
           redirect_to checkout_state_path(@order.state)
@@ -63,7 +57,7 @@ module Spree
 
         # Fix for #4117
         # If confirmation of payment fails, redirect back to payment screen
-        if params[:state] == "confirm" && @order.payments.valid.empty?
+        if params[:state] == "confirm" && @order.payment_required? && @order.payments.valid.empty?
           flash.keep
           redirect_to checkout_state_path("payment")
         end
@@ -107,55 +101,16 @@ module Spree
         spree.order_path(@order)
       end
 
-      # For payment step, filter order parameters to produce the expected nested
-      # attributes for a single payment and its source, discarding attributes
-      # for payment methods other than the one selected
-      def object_params
-        # has_checkout_step? check is necessary due to issue described in #2910
-        if @order.has_checkout_step?("payment") && @order.payment?
-          if params[:payment_source].present?
-            Rails.logger.error("PaymentsBug: Params:#{params}\n\nOrder:#{@order.attributes}")
-
-            # If order parameter isn't present and only one payment source parameter exists, use it
-            payment_source_key = nil
-            if params[:order].nil? && params[:payment_source].length == 1
-              payment_source_key = params[:payment_source].keys.first
-              params[:order] = {
-                :payments_attributes => [{:payment_method_id => payment_source_key.to_i}]
-              }
-            elsif !params[:order].nil?
-              payment_source_key = params[:order][:payments_attributes].first[:payment_method_id].underscore
-            else
-              flash[:error] = Spree.t(:error_submitting_payment_please_try_again_or_call_customer_support)
-              redirect_to checkout_state_path(@order.state)
-            end
-            source_params = params.delete(:payment_source)[payment_source_key]
-
-            if source_params
-              params[:order][:payments_attributes].first[:source_attributes] = source_params
-            end
-          end
-
-          if (params[:order][:payments_attributes])
-            params[:order][:payments_attributes].first[:amount] = @order.total
-          end
-        end
-        params[:order]
-      end
-
       def setup_for_current_state
         method_name = :"before_#{@order.state}"
         send(method_name) if respond_to?(method_name, true)
       end
 
-      # Skip setting ship address if order doesn't have a delivery checkout step
-      # to avoid triggering validations on shipping address
       def before_address
-        @order.bill_address ||= Address.default
-
-        if @order.checkout_steps.include? "delivery"
-          @order.ship_address ||= Address.default
-        end
+        # if the user has a default address, a callback takes care of setting
+        # that; but if he doesn't, we need to build an empty one here
+        @order.bill_address ||= Address.build_default
+        @order.ship_address ||= Address.build_default if @order.checkout_steps.include?('delivery')
       end
 
       def before_delivery
@@ -173,6 +128,10 @@ module Spree
             @order.contents.remove(variant, quantity)
           end
         end
+
+        if try_spree_current_user && try_spree_current_user.respond_to?(:payment_sources)
+          @payment_sources = try_spree_current_user.payment_sources
+        end
       end
 
       def rescue_from_spree_gateway_error(exception)
@@ -182,21 +141,7 @@ module Spree
       end
 
       def check_authorization
-        authorize!(:edit, current_order, session[:access_token])
-      end
-
-      def apply_coupon_code
-        if params[:order] && params[:order][:coupon_code]
-          @order.coupon_code = params[:order][:coupon_code] 
-
-          coupon_result = Spree::Promo::CouponApplicator.new(@order).apply
-          if coupon_result[:coupon_applied?]
-            flash[:success] = coupon_result[:success] if coupon_result[:success].present?
-          else
-            flash.now[:error] = coupon_result[:error]
-            respond_with(@order) { |format| format.html { render :edit } } and return
-          end
-        end
+        authorize!(:edit, current_order, cookies.signed[:guest_token])
       end
   end
 end

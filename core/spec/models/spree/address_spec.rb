@@ -1,6 +1,9 @@
 require 'spec_helper'
 
 describe Spree::Address do
+
+  subject { Spree::Address }
+
   describe "clone" do
     it "creates a copy of the address with the exception of the id, updated_at and created_at attributes" do
       state = create(:state)
@@ -125,43 +128,75 @@ describe Spree::Address do
       address.should be_valid
     end
 
-    it "phone is set" do
-      address.phone = "123"
-      address.should have(:no).errors_on(:phone)
-    end
-
-    it "phone is blank" do
+    it "requires phone" do
       address.phone = ""
       address.valid?
       address.errors["phone"].should == ["can't be blank"]
     end
 
-    it "require_phone? returns false and phone is blank" do
-      address.instance_eval{ self.stub :require_phone? => false }
-      address.phone = ""
-      address.should have(:no).errors_on(:phone)
+    it "requires zipcode" do
+      address.zipcode = ""
+      address.valid?
+      address.should have(1).error_on(:zipcode)
     end
 
+    context "phone not required" do
+      before { address.instance_eval{ self.stub :require_phone? => false } }
+
+      it "shows no errors when phone is blank" do
+        address.phone = ""
+        address.valid?
+        address.should have(:no).errors_on(:phone)
+      end
+    end
+
+    context "zipcode not required" do
+      before { address.instance_eval{ self.stub :require_zipcode? => false } }
+
+      it "shows no errors when phone is blank" do
+        address.zipcode = ""
+        address.valid?
+        address.should have(:no).errors_on(:zipcode)
+      end
+    end
   end
 
   context ".default" do
-    before do
-      @default_country_id = Spree::Config[:default_country_id]
-      new_country = create(:country)
-      Spree::Config[:default_country_id] = new_country.id
+    context "no user given" do
+      before do
+        @default_country_id = Spree::Config[:default_country_id]
+        new_country = create(:country)
+        Spree::Config[:default_country_id] = new_country.id
+      end
+
+      after do
+        Spree::Config[:default_country_id] = @default_country_id
+      end
+
+      it "sets up a new record with Spree::Config[:default_country_id]" do
+        Spree::Address.default.country.should == Spree::Country.find(Spree::Config[:default_country_id])
+      end
+
+      # Regression test for #1142
+      it "uses the first available country if :default_country_id is set to an invalid value" do
+        Spree::Config[:default_country_id] = "0"
+        Spree::Address.default.country.should == Spree::Country.first
+      end
     end
 
-    after do
-      Spree::Config[:default_country_id] = @default_country_id
-    end
-    it "sets up a new record with Spree::Config[:default_country_id]" do
-      Spree::Address.default.country.should == Spree::Country.find(Spree::Config[:default_country_id])
-    end
+    context "user given" do
+      let(:bill_address) { double("BillAddress") }
+      let(:ship_address) { double("ShipAddress") }
+      let(:user) { double("User", bill_address: bill_address, ship_address: ship_address) }
 
-    # Regression test for #1142
-    it "uses the first available country if :default_country_id is set to an invalid value" do
-      Spree::Config[:default_country_id] = "0"
-      Spree::Address.default.country.should == Spree::Country.first
+      it "returns that user bill address" do
+        expect(subject.default(user)).to eq bill_address
+      end
+
+      it "falls back to build default when user has no address" do
+        user.stub(bill_address: nil)
+        expect(subject.default(user)).to eq subject.build_default
+      end
     end
   end
 

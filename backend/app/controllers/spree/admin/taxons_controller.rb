@@ -4,11 +4,15 @@ module Spree
 
       respond_to :html, :json, :js
 
+      def index
+
+      end
+
       def search
         if params[:ids]
           @taxons = Spree::Taxon.where(:id => params[:ids].split(','))
         else
-          @taxons = Spree::Taxon.limit(20).search(:name_cont => params[:q]).result
+          @taxons = Spree::Taxon.limit(20).ransack(:name_cont => params[:q]).result
         end
       end
 
@@ -65,7 +69,7 @@ module Spree
         #check if we need to rename child taxons if parent name or permalink changes
         @update_children = true if params[:taxon][:name] != @taxon.name || params[:taxon][:permalink] != @taxon.permalink
 
-        if @taxon.update_attributes(params[:taxon])
+        if @taxon.update_attributes(taxon_params)
           flash[:success] = flash_message_for(@taxon, :successfully_updated)
         end
 
@@ -90,6 +94,14 @@ module Spree
         respond_with(@taxon) { |format| format.json { render :json => '' } }
       end
 
+      private
+        def taxon_params
+          params.require(:taxon).permit(permitted_params)
+        end
+
+        def permitted_params
+          Spree::PermittedAttributes.taxon_attributes
+        end
     end
   end
 end

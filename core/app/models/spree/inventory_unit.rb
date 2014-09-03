@@ -1,21 +1,20 @@
 module Spree
-  class InventoryUnit < ActiveRecord::Base
-    belongs_to :variant, class_name: "Spree::Variant"
-    belongs_to :order, class_name: "Spree::Order"
-    belongs_to :shipment, class_name: "Spree::Shipment", touch: true
+  class InventoryUnit < Spree::Base
+    belongs_to :variant, class_name: "Spree::Variant", inverse_of: :inventory_units
+    belongs_to :order, class_name: "Spree::Order", inverse_of: :inventory_units
+    belongs_to :shipment, class_name: "Spree::Shipment", touch: true, inverse_of: :inventory_units
     belongs_to :return_authorization, class_name: "Spree::ReturnAuthorization"
+    belongs_to :line_item, class_name: "Spree::LineItem", inverse_of: :inventory_units
 
     scope :backordered, -> { where state: 'backordered' }
     scope :shipped, -> { where state: 'shipped' }
     scope :backordered_per_variant, ->(stock_item) do
       includes(:shipment, :order)
-        .where("spree_shipments.state != 'canceled'")
+        .where("spree_shipments.state != 'canceled'").references(:shipment)
         .where(variant_id: stock_item.variant_id)
         .where('spree_orders.completed_at is not null')
         .backordered.order("spree_orders.completed_at ASC")
     end
-
-    attr_accessible :shipment, :variant_id
 
     # state machine (see http://github.com/pluginaweek/state_machine/tree/master for details)
     state_machine initial: :on_hand do
@@ -46,7 +45,12 @@ module Spree
     end
 
     def self.finalize_units!(inventory_units)
-      inventory_units.map { |iu| iu.update_column(:pending, false) }
+      inventory_units.map do |iu|
+        iu.update_columns(
+          pending: false,
+          updated_at: Time.now,
+        )
+      end
     end
 
     def find_stock_item
@@ -66,6 +70,7 @@ module Spree
       end
 
       def update_order
+        self.reload
         order.update!
       end
   end

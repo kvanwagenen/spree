@@ -9,40 +9,52 @@ module Spree
       end
 
       def shipping_rates(package, frontend_only = true)
-        shipping_rates = Array.new
-        shipping_methods = shipping_methods(package)
-        return [] unless shipping_methods
-
-        shipping_methods.each do |shipping_method|
-          cost = calculate_cost(shipping_method, package)
-          rate = shipping_method.shipping_rates.new(:cost => cost) unless cost.nil?
-          shipping_rates << rate unless rate.nil?
-        end
-
-        shipping_rates.sort_by! { |r| r.cost || 0 }
-
-        unless shipping_rates.empty?
-          if frontend_only
-            shipping_rates.each do |rate|
-              rate.selected = true and break if rate.shipping_method.frontend?
-            end
-          else
-            shipping_rates.first.selected = true
-          end
-        end
-
-        shipping_rates
+        rates = calculate_shipping_rates(package)
+        rates.select! { |rate| rate.shipping_method.frontend? } if frontend_only
+        choose_default_shipping_rate(rates)
+        sort_shipping_rates(rates)
       end
 
       private
+      def choose_default_shipping_rate(shipping_rates)
+        unless shipping_rates.empty?
+          shipping_rates.min_by(&:cost).selected = true
+        end
+      end
+
+      def sort_shipping_rates(shipping_rates)
+        shipping_rates.sort_by!(&:cost)
+      end
+
+      def calculate_shipping_rates(package)
+        shipping_methods(package).map do |shipping_method|
+          cost = shipping_method.calculator.compute(package)
+          tax_category = shipping_method.tax_category
+          if tax_category
+            tax_rate = tax_category.tax_rates.detect do |rate|
+              # If the rate's zone matches the order's zone, a positive adjustment will be applied.
+              # If the rate is from the default tax zone, then a negative adjustment will be applied.
+              # See the tests in shipping_rate_spec.rb for an example of this.d
+              rate.zone == package.order.tax_zone || rate.zone.default_tax?
+            end
+          end
+
+          if cost
+            rate = shipping_method.shipping_rates.new(cost: cost)
+            rate.tax_rate = tax_rate if tax_rate
+          end
+
+          rate
+        end.compact
+      end
 
       def shipping_methods(package)
         package.shipping_methods.select do |ship_method|
           calculator = ship_method.calculator
           begin
-            calculator.available?(package) &&
             ship_method.include?(order.ship_address) &&
-            (calculator.preferences[:currency].nil? ||
+            calculator.available?(package) &&
+            (calculator.preferences[:currency].blank? ||
              calculator.preferences[:currency] == currency)
           rescue Exception => exception
             log_calculator_exception(ship_method, exception)
@@ -50,14 +62,10 @@ module Spree
         end
       end
 
-      def calculate_cost(shipping_method, package)
-        shipping_method.calculator.compute(package)
-      end
-
       def log_calculator_exception(ship_method, exception)
-        Rails.logger.error("Something went wrong calculating rates with the #{ship_method.name} (ID=#{ship_method.id}) shipping method.")
-        Rails.logger.error("*" * 50)
-        Rails.logger.error(exception.backtrace.join("\n"))
+        Rails.logger.info("Something went wrong calculating rates with the #{ship_method.name} (ID=#{ship_method.id}) shipping method.")
+        Rails.logger.info("*" * 50)
+        Rails.logger.info(exception.backtrace.join("\n"))
       end
     end
   end

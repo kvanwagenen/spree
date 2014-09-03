@@ -25,60 +25,32 @@ describe Spree::Admin::OrdersController do
       end
     end
 
-    let(:order) { mock_model(Spree::Order, :complete? => true, :total => 100, :number => 'R123456789') }
+    let(:order) { mock_model(Spree::Order, :completed? => true, :total => 100, :number => 'R123456789') }
     before { Spree::Order.stub :find_by_number! => order }
 
-    context "#fire" do
-      before(:each) do
-        order.stub :foo => true
+    context "#approve" do
+      it "approves an order" do
+        expect(order).to receive(:approved_by).with(controller.try_spree_current_user)
+        spree_put :approve, id: order.number
+        expect(flash[:success]).to eq Spree.t(:order_approved)
       end
+    end
 
-      it "should receive state_events" do
-        order.should_receive(:state_events).and_return([:foo])
-        spree_put :fire, {:id => "R1234567", :e => "foo"}
+    context "#cancel" do
+      it "cancels an order with a reason" do
+        expect(order).to receive(:cancel!)
+        spree_put :cancel, id: order.number, reason: "fraudfake"
+        order.reload
+        order.cancel_reason.should == "fraudfake"
+        expect(flash[:success]).to eq Spree.t(:order_canceled)
       end
+    end
 
-      context 'params[:e] includes in state_events' do
-        before(:each) do
-          order.stub(:state_events).and_return([:foo])
-        end
-
-        it "should fire the requested event on the payment" do
-          order.should_receive(:foo).and_return true
-          spree_put :fire, {:id => "R1234567", :e => "foo"}
-        end
-
-        it "should respond with a flash message if the event cannot be fired" do
-          order.stub :foo => false
-          spree_put :fire, {:id => "R1234567", :e => "foo"}
-          flash[:error].should_not be_nil
-        end
-      end
-
-      context 'params[:e] not includes in state_events' do
-        before(:each) do
-          order.stub(:state_events).and_return([:bar])
-        end
-
-        it "should not fire the requested event on the payment" do
-          order.should_not_receive(:foo)
-          spree_put :fire, {:id => "R1234567", :e => "foo"}
-        end
-
-        it "should respond with a flash message if the event cannot be fired" do
-          spree_put :fire, {:id => "R1234567", :e => "foo"}
-          flash[:error].should_not be_nil
-        end
-      end
-
-      context "completed order" do
-        let(:order) { create(:completed_order_with_totals) }
-        
-        it "should pass a cancel reason on cancel" do
-          spree_put :fire, {:id => order.to_param, :e => "cancel", :reason => "fraudfake"}
-          order.reload
-          order.cancel_reason.should == "fraudfake"
-        end
+    context "#resume" do
+      it "resumes an order" do
+        expect(order).to receive(:resume!)
+        spree_put :resume, id: order.number
+        expect(flash[:success]).to eq Spree.t(:order_resumed)
       end
     end
 
@@ -100,14 +72,14 @@ describe Spree::Admin::OrdersController do
 
     # Regression test for #3684
     context "#edit" do
-      it "does not refresh rates if the order is complete" do
-        order.stub :complete? => true
+      it "does not refresh rates if the order is completed" do
+        order.stub :completed? => true
         order.should_not_receive :refresh_shipment_rates
         spree_get :edit, :id => order.number
       end
 
       it "does refresh the rates if the order is incomplete" do
-        order.stub :complete? => false
+        order.stub :completed? => false
         order.should_receive :refresh_shipment_rates
         spree_get :edit, :id => order.number
       end
@@ -119,7 +91,7 @@ describe Spree::Admin::OrdersController do
 
       before do
         controller.stub :spree_current_user => user
-        user.spree_roles << Spree::Role.find_or_create_by_name('admin')
+        user.spree_roles << Spree::Role.find_or_create_by(name: 'admin')
 
         create(:completed_order_with_totals)
         expect(Spree::Order.count).to eq 1
@@ -144,13 +116,13 @@ describe Spree::Admin::OrdersController do
     end
 
     it 'should grant access to users with an admin role' do
-      user.spree_roles << Spree::Role.find_or_create_by_name('admin')
+      user.spree_roles << Spree::Role.find_or_create_by(name: 'admin')
       spree_post :index
       response.should render_template :index
     end
 
     it 'should grant access to users with an bar role' do
-      user.spree_roles << Spree::Role.find_or_create_by_name('bar')
+      user.spree_roles << Spree::Role.find_or_create_by(name: 'bar')
       Spree::Ability.register_ability(BarAbility)
       spree_post :index
       response.should render_template :index
@@ -162,7 +134,7 @@ describe Spree::Admin::OrdersController do
       order.stub(:user).and_return Spree.user_class.new
       order.stub(:token).and_return nil
       user.spree_roles.clear
-      user.spree_roles << Spree::Role.find_or_create_by_name('bar')
+      user.spree_roles << Spree::Role.find_or_create_by(name: 'bar')
       Spree::Ability.register_ability(BarAbility)
       spree_put :update, { :id => 'R123' }
       response.should redirect_to('/unauthorized')

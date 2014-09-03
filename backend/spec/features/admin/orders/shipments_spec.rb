@@ -50,17 +50,17 @@ describe "Shipments" do
     it "can move a variant to a new and to an existing shipment" do
       order.shipments.count.should == 1
 
-      within_row(1) { click_icon 'resize-horizontal' }
+      within_row(1) { click_icon 'arrows-h' }
       targetted_select2 'LA', from: '#s2id_item_stock_location'
       click_icon :ok
       wait_for_ajax
-      page.should have_selector("#shipment_#{order.shipments.first.id}")
+      expect(page.find("#shipment_#{order.shipments.first.id}")).to be_present
 
-      within_row(2) { click_icon 'resize-horizontal' }
+      within_row(2) { click_icon 'arrows-h' }
       targetted_select2 "LA(#{order.reload.shipments.last.number})", from: '#s2id_item_stock_location'
       click_icon :ok
       wait_for_ajax
-      page.should have_selector("#shipment_#{order.reload.shipments.last.id}")
+      expect(page.find("#shipment_#{order.reload.shipments.last.id}")).to be_present
     end
   end
 end

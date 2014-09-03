@@ -4,13 +4,11 @@ module Spree
       before_filter :stock_location, except: [:update, :destroy]
 
       def index
-        authorize! :read, StockItem
         @stock_items = scope.ransack(params[:q]).result.page(params[:page]).per(params[:per_page])
         respond_with(@stock_items)
       end
 
       def show
-        authorize! :read, StockItem
         @stock_item = scope.find(params[:id])
         respond_with(@stock_item)
       end
@@ -21,10 +19,9 @@ module Spree
         count_on_hand = 0
         if params[:stock_item].has_key?(:count_on_hand)
           count_on_hand = params[:stock_item][:count_on_hand].to_i
-          params[:stock_item].delete(:count_on_hand)
         end
 
-        @stock_item = scope.new(params[:stock_item])
+        @stock_item = scope.new(stock_item_params)
         if @stock_item.save
           @stock_item.adjust_count_on_hand(count_on_hand)
           respond_with(@stock_item, status: 201, default_template: :show)
@@ -34,8 +31,7 @@ module Spree
       end
 
       def update
-        authorize! :update, StockItem
-        @stock_item = StockItem.find(params[:id])
+        @stock_item = StockItem.accessible_by(current_ability, :update).find(params[:id])
 
         count_on_hand = 0
         if params[:stock_item].has_key?(:count_on_hand)
@@ -52,7 +48,7 @@ module Spree
           invalid_resource!(@stock_item)
         end
       end
-
+      
       def update_batch
         authorize! :update, StockItem        
         
@@ -72,8 +68,7 @@ module Spree
       end
 
       def destroy
-        authorize! :delete, StockItem
-        @stock_item = StockItem.find(params[:id])
+        @stock_item = StockItem.accessible_by(current_ability, :destroy).find(params[:id])
         @stock_item.destroy
         respond_with(@stock_item, status: 204)
       end
@@ -82,12 +77,16 @@ module Spree
 
       def stock_location
         render 'spree/api/shared/stock_location_required', status: 422 and return unless params[:stock_location_id]
-        @stock_location ||= StockLocation.find(params[:stock_location_id])
+        @stock_location ||= StockLocation.accessible_by(current_ability, :read).find(params[:stock_location_id])
       end
 
       def scope
         includes = {:variant => [{ :option_values => :option_type }, :product] }
-        @stock_location.stock_items.includes(includes)
+        @stock_location.stock_items.accessible_by(current_ability, :read).includes(includes)
+      end
+
+      def stock_item_params
+        params.require(:stock_item).permit(permitted_stock_item_attributes)
       end
     end
   end

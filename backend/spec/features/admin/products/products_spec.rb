@@ -12,7 +12,7 @@ describe "Products" do
     def build_option_type_with_values(name, values)
       ot = FactoryGirl.create(:option_type, :name => name)
       values.each do |val|
-        ot.option_values.create({:name => val.downcase, :presentation => val}, :without_protection => true)
+        ot.option_values.create(:name => val.downcase, :presentation => val)
       end
       ot
     end
@@ -113,7 +113,7 @@ describe "Products" do
       def build_option_type_with_values(name, values)
         ot = FactoryGirl.create(:option_type, :name => name)
         values.each do |val|
-          ot.option_values.create({:name => val.downcase, :presentation => val}, :without_protection => true)
+          ot.option_values.create(:name => val.downcase, :presentation => val)
         end
         ot
       end
@@ -319,12 +319,35 @@ describe "Products" do
 
         page.all('tr.product_property').size > 1
         within(:css, "tr.product_property:first-child") do
-          first('input[type=text]')[:value].should eq('baseball_cap_color')
+          first('input[type=text]').value.should eq('baseball_cap_color')
         end
       end
     end
+
+    context 'deleting a product', :js => true do
+      let!(:product) { create(:product) }
+
+      it "is still viewable" do
+        visit spree.admin_products_path
+        accept_alert do
+          click_icon :trash
+          wait_for_ajax
+        end
+        # This will show our deleted product
+        check "Show Deleted"
+        click_icon :search
+        click_link product.name
+        find("#product_price").value.to_f.should == product.price.to_f
+      end
+    end
   end
+
   context 'with only product permissions' do
+  
+    before do 
+      Spree::Admin::BaseController.any_instance.stub(:spree_current_user).and_return(nil)
+    end
+
     custom_authorization! do |user|
       can [:admin, :update, :index, :read], Spree::Product
     end
@@ -342,6 +365,7 @@ describe "Products" do
       page.should have_css('a.edit')
       page.should_not have_css('a.delete-resource')
     end
+  
     it "should only display accessible links on edit" do
       visit spree.admin_product_path(product)
 

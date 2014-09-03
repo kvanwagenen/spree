@@ -1,22 +1,22 @@
 require 'ostruct'
 
 module Spree
-  class Shipment < ActiveRecord::Base
-    belongs_to :order, class_name: 'Spree::Order', touch: true
-    belongs_to :address, class_name: 'Spree::Address'
+  class Shipment < Spree::Base
+    belongs_to :order, class_name: 'Spree::Order', touch: true, inverse_of: :shipments
+    belongs_to :address, class_name: 'Spree::Address', inverse_of: :shipments
     belongs_to :stock_location, class_name: 'Spree::StockLocation'
 
-    has_many :shipping_rates, dependent: :delete_all
+    has_many :shipping_rates, -> { order('cost ASC') }, dependent: :delete_all
     has_many :shipping_methods, through: :shipping_rates
     has_many :state_changes, as: :stateful
-    has_many :inventory_units, dependent: :delete_all
-    has_one :adjustment, as: :source, dependent: :destroy
+    has_many :inventory_units, dependent: :delete_all, inverse_of: :shipment
+    has_many :adjustments, as: :adjustable, dependent: :delete_all
 
-    after_save :ensure_correct_adjustment, :update_order
+    after_save :update_adjustments
+
+    before_validation :set_cost_zero_when_nil
 
     attr_accessor :special_instructions
-    attr_accessible :order, :special_instructions, :stock_location_id, :number,
-                    :tracking, :address, :inventory_units, :selected_shipping_rate_id
 
     accepts_nested_attributes_for :address
     accepts_nested_attributes_for :inventory_units
@@ -62,6 +62,14 @@ module Spree
         transition from: :canceled, to: :pending
       end
       after_transition from: :canceled, to: [:pending, :ready], do: :after_resume
+
+      after_transition do |shipment, transition|
+        shipment.state_changes.create!(
+          previous_state: transition.from,
+          next_state:     transition.to,
+          name:           'shipment',
+        )
+      end
     end
 
     def to_param
@@ -70,6 +78,10 @@ module Spree
 
     def backordered?
       inventory_units.any? { |inventory_unit| inventory_unit.backordered? }
+    end
+
+    def ready_or_pending?
+      self.ready? || self.pending?
     end
 
     def shipped=(value)
@@ -82,7 +94,7 @@ module Spree
     end
 
     def add_shipping_method(shipping_method, selected = false)
-      shipping_rates.create(shipping_method: shipping_method, selected: selected)
+      shipping_rates.create(shipping_method: shipping_method, selected: selected, cost: cost)
     end
 
     def selected_shipping_rate
@@ -97,6 +109,10 @@ module Spree
       shipping_rates.update_all(selected: false)
       shipping_rates.update(id, selected: true)
       self.save!
+    end
+
+    def tax_category
+      selected_shipping_rate.try(:tax_rate).try(:tax_category)
     end
 
     def refresh_rates
@@ -122,54 +138,67 @@ module Spree
       order ? order.currency : Spree::Config[:currency]
     end
 
-    # The adjustment amount associated with this shipment (if any.)  Returns only the first adjustment to match
-    # the shipment but there should never really be more than one.
-    def cost
-      adjustment ? adjustment.amount : 0
-    end
-
-    alias_method :amount, :cost
-
     def display_cost
       Spree::Money.new(cost, { currency: currency })
     end
-
-    alias_method :display_amount, :display_cost
+    alias display_amount display_cost
 
     def item_cost
       line_items.map(&:amount).sum
+    end
+
+    def discounted_cost
+      cost + promo_total
+    end
+    alias discounted_amount discounted_cost
+
+    # Only one of either included_tax_total or additional_tax_total is set
+    # This method returns the total of the two. Saves having to check if 
+    # tax is included or additional.
+    def tax_total
+      included_tax_total + additional_tax_total
+    end
+
+    def final_price
+      discounted_cost + tax_total
+    end
+
+    def display_discounted_cost
+      Spree::Money.new(discounted_cost, { currency: currency })
+    end
+
+    def display_final_price
+      Spree::Money.new(final_price, { currency: currency })
     end
 
     def display_item_cost
       Spree::Money.new(item_cost, { currency: currency })
     end
 
-    def total_cost
-      cost + item_cost
-    end
-
-    def display_total_cost
-      Spree::Money.new(total_cost, { currency: currency })
-    end
-
     def editable_by?(user)
       !shipped?
     end
 
+    ManifestItem = Struct.new(:line_item, :variant, :quantity, :states)
+
     def manifest
-      inventory_units.joins(:variant).includes(:variant).group_by(&:variant).map do |variant, units|
-        states = {}
-        units.group_by(&:state).each { |state, iu| states[state] = iu.count }
-        OpenStruct.new(variant: variant, quantity: units.length, states: states)
-      end
+      # Grouping by the ID means that we don't have to call out to the association accessor
+      # This makes the grouping by faster because it results in less SQL cache hits.
+      inventory_units.group_by(&:variant_id).map do |variant_id, units|
+        units.group_by(&:line_item_id).map do |line_item_id, units|
+
+          states = {}
+          units.group_by(&:state).each { |state, iu| states[state] = iu.count }
+
+          line_item = units.first.line_item
+          variant = units.first.variant
+          ManifestItem.new(line_item, variant, units.length, states)
+        end
+      end.flatten
     end
 
     def line_items
-      if order.complete? and Spree::Config.track_inventory_levels
-        order.line_items.select { |li| !li.should_track_inventory? || inventory_units.pluck(:variant_id).include?(li.variant_id) }
-      else
-        order.line_items
-      end
+      inventory_units.includes(:line_item).map(&:line_item).uniq
     end
 
     def finalize!
@@ -191,7 +220,10 @@ module Spree
     def update!(order)
       old_state = state
       new_state = determine_state(order)
-      update_column :state, new_state
+      update_columns(
+        state: new_state,
+        updated_at: Time.now,
+      )
       after_ship if new_state == 'shipped' and old_state != 'shipped'
     end
 
@@ -217,22 +249,72 @@ module Spree
     end
 
     def inventory_units_for(variant)
-      inventory_units.group_by(&:variant_id)[variant.id] || []
+      inventory_units.where(variant_id: variant.id)
+    end
+
+    def inventory_units_for_item(line_item, variant = nil)
+      inventory_units.where(line_item_id: line_item.id, variant_id: line_item.variant.id || variant.id)
     end
 
     def to_package
       package = Stock::Package.new(stock_location, order)
-      inventory_units.includes(:variant).each do |inventory_unit|
-        package.add inventory_unit.variant, 1, inventory_unit.state_name
+      grouped_inventory_units = inventory_units.includes(:line_item).group_by do |iu|
+        [iu.line_item, iu.state_name]
+      end
+
+      grouped_inventory_units.each do |(line_item, state_name), inventory_units|
+        package.add line_item, inventory_units.count, state_name
       end
       package
     end
 
-    def set_up_inventory(state, variant, order)
+    def set_up_inventory(state, variant, order, line_item)
       self.inventory_units.create(
-        { variant_id: variant.id, state: state, order_id: order.id },
-        without_protection: true
+        state: state,
+        variant_id: variant.id,
+        order_id: order.id,
+        line_item_id: line_item.id
       )
+    end
+
+    def update_amounts
+      if selected_shipping_rate
+        self.update_columns(
+          cost: selected_shipping_rate.cost,
+          adjustment_total: adjustments.additional.map(&:update!).compact.sum,
+          updated_at: Time.now,
+        )
+      end
+    end
+
+    # Update Shipment and make sure Order states follow the shipment changes
+    def update_attributes_and_order(params = {})
+      if self.update_attributes params
+        if params.has_key? :selected_shipping_rate_id
+          # Changing the selected Shipping Rate won't update the cost (for now)
+          # so we persist the Shipment#cost before calculating order shipment
+          # total and updating payment state (given a change in shipment cost
+          # might change the Order#payment_state)
+          self.update_amounts
+
+          order.updater.update_shipment_total
+          order.updater.update_payment_state
+
+          # Update shipment state only after order total is updated because it
+          # (via Order#paid?) affects the shipment state (YAY)
+          self.update_columns(
+            state: determine_state(order),
+            updated_at: Time.now
+          )
+
+          # And then it's time to update shipment states and finally persist
+          # order changes
+          order.updater.update_shipment_state
+          order.updater.persist_totals
+        end
+
+        true
+      end
     end
 
     private
@@ -255,38 +337,37 @@ module Spree
         "#{Spree.t(:shipping)} (#{shipping_method.name})"
       end
 
-      def validate_shipping_method
-        unless shipping_method.nil?
-          errors.add :shipping_method, Spree.t(:is_not_available_to_shipment_address) unless shipping_method.include?(address)
-        end
-      end
-
       def after_ship
         inventory_units.each &:ship!
-        adjustment.finalize!
         send_shipped_email
         touch :shipped_at
+        update_order_shipment_state
+      end
+
+      def update_order_shipment_state
+        new_state = OrderUpdater.new(order).update_shipment_state
+        order.update_columns(
+          shipment_state: new_state,
+          updated_at: Time.now,
+        )
       end
 
       def send_shipped_email
         ShipmentMailer.shipped_email(self.id).deliver
       end
 
-      def ensure_correct_adjustment
-        if adjustment
-          adjustment.originator = shipping_method
-          adjustment.label = shipping_method.adjustment_label
-          adjustment.amount = selected_shipping_rate.cost if adjustment.open?
-          adjustment.save!
-          adjustment.reload
-        elsif selected_shipping_rate_id
-          shipping_method.create_adjustment shipping_method.adjustment_label, order, self, true, "open"
-          reload #ensure adjustment is present on later saves
+      def set_cost_zero_when_nil
+        self.cost = 0 unless self.cost
+      end
+
+      def update_adjustments
+        if cost_changed? && state != 'shipped'
+          recalculate_adjustments
         end
       end
 
-      def update_order
-        order.update!
+      def recalculate_adjustments
+        Spree::ItemAdjustments.new(self).update
       end
 
       def can_get_rates?

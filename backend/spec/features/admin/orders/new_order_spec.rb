@@ -4,8 +4,8 @@ describe "New Order" do
   let!(:stock_location) { create(:stock_location_with_items) }
   let!(:product) { create(:product) }
   let!(:state) { create(:state) }
-  let!(:user) { create(:user, :email => "foo@bar.com") }
-  let!(:payment_method) { create(:payment_method) }
+  let!(:user) { create(:user) }
+  let!(:payment_method) { create(:check_payment_method) }
   let!(:shipping_method) { create(:shipping_method) }
   let!(:stock_item) { product.master.stock_items.first.adjust_count_on_hand(10) }
 
@@ -34,7 +34,6 @@ describe "New Order" do
     click_on "Update"
 
     expect(current_path).to eql(spree.admin_order_payments_path(Spree::Order.last))
-
     click_icon "capture"
 
     click_on "Order Details"
@@ -42,6 +41,21 @@ describe "New Order" do
     wait_for_ajax
 
     page.should have_content("shipped")
+  end
+
+  context "adding new item to the order", js: true do
+    it "inventory items show up just fine" do
+      select2_search product.name, :from => Spree.t(:name_or_sku)
+
+      within("table.stock-levels") do
+        fill_in "stock_item_quantity", :with => 2
+        click_icon :plus
+      end
+
+      within(".stock-contents") do
+        page.should have_content(product.name)
+      end
+    end
   end
 
   # Regression test for #3958
@@ -68,20 +82,29 @@ describe "New Order" do
   end
 
   # Regression test for #3336
-  it "transitions order after products are selected", js: true do
-    click_on "Customer Details"
+  context "start by customer address" do
+    it "completes order fine", js: true do
+      click_on "Customer Details"
 
-    targetted_select2_search "foo@bar", :from => "#s2id_customer_search"
-    check "order_use_billing"
-    fill_in_address
-    click_on "Update"
+      within "#select-customer" do
+        targetted_select2_search user.email, :from => "#s2id_customer_search"
+      end
 
-    click_on "Order Details"
-    select2_search product.name, :from => Spree.t(:name_or_sku)
-    click_icon :plus
-    wait_for_ajax
-    within(".additional-info .state") do
-      page.should have_content("PAYMENT")
+      check "order_use_billing"
+      fill_in_address
+      click_on "Update"
+
+      click_on "Order Details"
+      select2_search product.name, :from => Spree.t(:name_or_sku)
+      click_icon :plus
+      wait_for_ajax
+
+      click_on "Payments"
+      click_on "Continue"
+
+      within(".additional-info .state") do
+        page.should have_content("COMPLETE")
+      end
     end
   end
 

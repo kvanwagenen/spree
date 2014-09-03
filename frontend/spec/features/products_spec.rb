@@ -45,12 +45,12 @@ describe "Visiting Products", inaccessible: true do
         end
       end
 
-      it "when adding a product to the cart" do
+      it "when adding a product to the cart", :js => true do
         visit spree.product_path(product)
         click_button "Add To Cart"
         click_link "Home"
         within(".cart-info") do
-          page.should have_content("руб19.99")
+          page.should have_content("РУБ19.99")
         end
       end
 
@@ -96,6 +96,16 @@ describe "Visiting Products", inaccessible: true do
       click_link product.name
       within("#product-price") do
         expect(page).to have_content variant.price
+        expect(page).not_to have_content Spree.t(:out_of_stock)
+      end
+    end
+
+    it "doesn't display out of stock for master product" do
+      product.master.stock_items.update_all count_on_hand: 0, backorderable: false
+
+      click_link product.name
+      within("#product-price") do
+        expect(page).not_to have_content Spree.t(:out_of_stock)
       end
     end
 
@@ -114,10 +124,10 @@ describe "Visiting Products", inaccessible: true do
 
     before do
       image = File.open(File.expand_path('../../fixtures/thinking-cat.jpg', __FILE__))
-      v1 = product.variants.create!(:price => 9.99)
-      v2 = product.variants.create!(:price => 10.99)
-      v1.images.create!(:attachment => image)
-      v2.images.create!(:attachment => image)
+      v1 = product.variants.create!(price: 9.99)
+      v2 = product.variants.create!(price: 10.99)
+      v1.images.create!(attachment: image)
+      v2.images.create!(attachment: image)
     end
 
     it "should not display no image available" do
