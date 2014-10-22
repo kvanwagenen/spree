@@ -41,7 +41,7 @@ module Spree
           end
 
           redirect_to admin_order_payments_path(@order)
-        rescue Spree::Core::GatewayError => e
+        rescue Exception => e
           flash[:error] = "#{e.message}"
           redirect_to new_admin_order_payment_path(@order)
         end
