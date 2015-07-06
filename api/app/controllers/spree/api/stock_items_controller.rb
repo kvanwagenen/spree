@@ -61,14 +61,19 @@ module Spree
         end
 
         stock_items = params[:stock_items]
-        updated = 0
+        updated = []
+        failed = []
         stock_items.each do |item|
           next if item.nil? || item["variant_id"].nil? || item["count_on_hand"].nil?
           stock_item = @stock_location.stock_items.find_by_variant_id(item["variant_id"])
-          success = stock_item.set_count_on_hand(item["count_on_hand"])
-          updated += 1 if success
+          if stock_item && stock_item.respond_to?(:set_count_on_hand)
+            stock_item.set_count_on_hand(item["count_on_hand"])
+            updated << item["variant_id"]
+          else
+            failed << item["variant_id"]
+          end
         end
-        @data = { :message => "Successfully updated #{updated} stock items" }
+        @data = { message: "Successfully updated #{updated.length} stock items. #{failed.length} failed.", updated_ids: updated, failed_ids: failed }
       end
 
       def destroy
