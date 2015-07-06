@@ -1,2 +1,1 @@
-object false
-node(:message) { @data[:message] }
+object @data
