@@ -57,7 +57,7 @@ module Spree
         authorize! :update, StockItem        
         
         if params[:stock_items].nil?
-          render status: :bad_request, content_type: :json, message: "Request contained no stock_items parameter"
+          render status: :bad_request, content_type: :json, message: "Request contained no stock_items parameter" and return
         end
 
         stock_items = params[:stock_items]

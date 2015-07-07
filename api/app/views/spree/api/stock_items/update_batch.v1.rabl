@@ -1,2 +1,4 @@
-object @data
-attributes :message, :updated_ids, :failed_ids
+object false
+node(:message) { @data[:message] }
+node(:updated_ids) { @data[:updated_ids] }
+node(:failed_ids) { @data[:failed_ids] }
